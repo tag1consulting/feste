@@ -262,10 +262,8 @@ impl Tensor {
                         for j in 0..seq2 {
                             let mut sum = 0.0;
                             for l in 0..inner_dim {
-                                let self_idx =
-                                    ((b * n_heads + h) * seq1 + i) * inner_dim + l;
-                                let other_idx =
-                                    ((b * n_heads + h) * inner_dim + l) * seq2 + j;
+                                let self_idx = ((b * n_heads + h) * seq1 + i) * inner_dim + l;
+                                let other_idx = ((b * n_heads + h) * inner_dim + l) * seq2 + j;
                                 sum += self.data[self_idx] * other.data[other_idx];
                             }
                             chunk[i * seq2 + j] = sum;
@@ -309,13 +307,7 @@ impl Tensor {
     /// # Returns
     ///
     /// Result tensor of shape `[m, n]`
-    fn matmul_parallel_blocked(
-        &self,
-        other: &Tensor,
-        m: usize,
-        n: usize,
-        k: usize,
-    ) -> Tensor {
+    fn matmul_parallel_blocked(&self, other: &Tensor, m: usize, n: usize, k: usize) -> Tensor {
         // Block size for cache optimization
         // 8×8 blocks = 256 bytes (fits well in L1 cache: typically 32-64KB)
         const BLOCK_SIZE: usize = 8;
@@ -420,8 +412,7 @@ impl Tensor {
                     let max = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
 
                     // Compute exp(x - max)
-                    let exp_values: Vec<f32> =
-                        row.iter().map(|&x| (x - max).exp()).collect();
+                    let exp_values: Vec<f32> = row.iter().map(|&x| (x - max).exp()).collect();
 
                     // Normalize
                     let sum: f32 = exp_values.iter().sum();
@@ -435,8 +426,7 @@ impl Tensor {
         // === FALLBACK: GLOBAL SOFTMAX ===
         // Less common, but included for completeness
         let max = self.data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_values: Vec<f32> =
-            self.data.iter().map(|&x| (x - max).exp()).collect();
+        let exp_values: Vec<f32> = self.data.iter().map(|&x| (x - max).exp()).collect();
         let sum: f32 = exp_values.iter().sum();
         let result = exp_values.iter().map(|&x| x / sum).collect();
 
@@ -486,10 +476,7 @@ impl Tensor {
                 other.shape[0], seq_len,
                 "Sequence length must match for broadcasting"
             );
-            assert_eq!(
-                other.shape[1], dim,
-                "Dimension must match for broadcasting"
-            );
+            assert_eq!(other.shape[1], dim, "Dimension must match for broadcasting");
 
             let result: Vec<f32> = (0..batch_size * seq_len * dim)
                 .into_par_iter()
@@ -560,31 +547,80 @@ impl Tensor {
         );
     }
 
-    /// Element-wise subtraction
+    /// Element-wise subtraction with broadcasting
     pub fn sub(&self, other: &Tensor) -> Tensor {
-        assert_eq!(
-            self.shape, other.shape,
-            "Shapes must match for subtraction"
+        // Exact match
+        if self.shape == other.shape {
+            let result = self
+                .data
+                .par_iter()
+                .zip(&other.data)
+                .map(|(a, b)| a - b)
+                .collect();
+            return Tensor::new(result, self.shape.clone());
+        }
+
+        // Broadcast last dimension (for keepdim operations)
+        if self.shape.len() == other.shape.len() {
+            let last_dim = *self.shape.last().unwrap();
+            let other_last = *other.shape.last().unwrap();
+
+            if other_last == 1
+                && self.shape[..self.shape.len() - 1] == other.shape[..other.shape.len() - 1]
+            {
+                let result: Vec<f32> = (0..self.data.len())
+                    .into_par_iter()
+                    .map(|i| {
+                        let other_idx = (i / last_dim) * other_last;
+                        self.data[i] - other.data[other_idx]
+                    })
+                    .collect();
+                return Tensor::new(result, self.shape.clone());
+            }
+        }
+
+        panic!(
+            "Unsupported broadcast for sub: {:?} - {:?}",
+            self.shape, other.shape
         );
-        let result = self
-            .data
-            .par_iter()
-            .zip(&other.data)
-            .map(|(a, b)| a - b)
-            .collect();
-        Tensor::new(result, self.shape.clone())
     }
 
-    /// Element-wise division
+    /// Element-wise division with broadcasting
     pub fn div(&self, other: &Tensor) -> Tensor {
-        assert_eq!(self.shape, other.shape, "Shapes must match for division");
-        let result = self
-            .data
-            .par_iter()
-            .zip(&other.data)
-            .map(|(a, b)| a / b)
-            .collect();
-        Tensor::new(result, self.shape.clone())
+        // Exact match
+        if self.shape == other.shape {
+            let result = self
+                .data
+                .par_iter()
+                .zip(&other.data)
+                .map(|(a, b)| a / b)
+                .collect();
+            return Tensor::new(result, self.shape.clone());
+        }
+
+        // Broadcast last dimension (for keepdim operations)
+        if self.shape.len() == other.shape.len() {
+            let last_dim = *self.shape.last().unwrap();
+            let other_last = *other.shape.last().unwrap();
+
+            if other_last == 1
+                && self.shape[..self.shape.len() - 1] == other.shape[..other.shape.len() - 1]
+            {
+                let result: Vec<f32> = (0..self.data.len())
+                    .into_par_iter()
+                    .map(|i| {
+                        let other_idx = (i / last_dim) * other_last;
+                        self.data[i] / other.data[other_idx]
+                    })
+                    .collect();
+                return Tensor::new(result, self.shape.clone());
+            }
+        }
+
+        panic!(
+            "Unsupported broadcast for div: {:?} / {:?}",
+            self.shape, other.shape
+        );
     }
 
     /// Add scalar to all elements
@@ -674,6 +710,31 @@ impl Tensor {
             return Tensor::new(result, new_shape);
         }
 
+        // For 4D tensors transposing last two dimensions (common in attention)
+        // [batch, heads, seq1, seq2] -> [batch, heads, seq2, seq1]
+        if self.shape.len() == 4 && d1 == 2 && d2 == 3 {
+            let d0 = self.shape[0];
+            let d1_dim = self.shape[1];
+            let d2_dim = self.shape[2];
+            let d3_dim = self.shape[3];
+
+            let mut result = vec![0.0; self.data.len()];
+
+            for i0 in 0..d0 {
+                for i1 in 0..d1_dim {
+                    for i2 in 0..d2_dim {
+                        for i3 in 0..d3_dim {
+                            let src_idx = ((i0 * d1_dim + i1) * d2_dim + i2) * d3_dim + i3;
+                            let dst_idx = ((i0 * d1_dim + i1) * d3_dim + i3) * d2_dim + i2;
+                            result[dst_idx] = self.data[src_idx];
+                        }
+                    }
+                }
+            }
+
+            return Tensor::new(result, new_shape);
+        }
+
         // For higher dimensions, do full transpose with stride remapping
         let old_strides = &self.strides;
         let mut new_strides = old_strides.clone();
@@ -703,22 +764,56 @@ impl Tensor {
     ///
     /// Used for causal masking in attention (setting future positions to -inf)
     ///
+    /// Supports broadcasting: [batch, n_heads, seq, seq] with mask [seq, seq]
+    ///
     /// # Arguments
     ///
     /// * `mask` - Boolean mask (non-zero = true)
     /// * `value` - Value to fill where mask is true
     pub fn masked_fill(&self, mask: &Tensor, value: f32) -> Tensor {
-        assert_eq!(
-            self.shape, mask.shape,
-            "Mask shape must match tensor shape"
+        // Handle exact match
+        if self.shape == mask.shape {
+            let result = self
+                .data
+                .par_iter()
+                .zip(&mask.data)
+                .map(|(&x, &m)| if m != 0.0 { value } else { x })
+                .collect();
+            return Tensor::new(result, self.shape.clone());
+        }
+
+        // Handle broadcasting: [batch, n_heads, seq, seq] with mask [seq, seq]
+        if self.shape.len() == 4 && mask.shape.len() == 2 {
+            let batch = self.shape[0];
+            let n_heads = self.shape[1];
+            let seq = self.shape[2];
+
+            assert_eq!(mask.shape[0], seq, "Mask sequence dimension must match");
+            assert_eq!(mask.shape[1], seq, "Mask sequence dimension must match");
+
+            let mut result = Vec::with_capacity(self.data.len());
+            for _b in 0..batch {
+                for _h in 0..n_heads {
+                    for i in 0..seq {
+                        for j in 0..seq {
+                            let mask_idx = i * seq + j;
+                            let self_idx = result.len();
+                            result.push(if mask.data[mask_idx] != 0.0 {
+                                value
+                            } else {
+                                self.data[self_idx]
+                            });
+                        }
+                    }
+                }
+            }
+            return Tensor::new(result, self.shape.clone());
+        }
+
+        panic!(
+            "Unsupported broadcast for masked_fill: {:?} with mask {:?}",
+            self.shape, mask.shape
         );
-        let result = self
-            .data
-            .par_iter()
-            .zip(&mask.data)
-            .map(|(&x, &m)| if m != 0.0 { value } else { x })
-            .collect();
-        Tensor::new(result, self.shape.clone())
     }
 
     /// Compute mean along an axis
@@ -750,11 +845,7 @@ impl Tensor {
                 })
                 .collect();
 
-            let new_shape = if keepdim {
-                vec![rows, 1]
-            } else {
-                vec![rows]
-            };
+            let new_shape = if keepdim { vec![rows, 1] } else { vec![rows] };
             return Tensor::new(result, new_shape);
         }
 

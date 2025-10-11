@@ -12,26 +12,28 @@ An educational implementation demonstrating how language models work by building
 
 ## Current Status
 
-**Phase 1 Complete: Tokenization**
-**Phase 2 Complete: Tensor Operations**
+**Phases 1-3 Complete: Foundation Ready**
 
-The project now has a working tokenizer and tensor library. The tensor implementation includes matrix multiplication with automatic parallelization, broadcasting, numerically stable softmax, and all operations needed for transformers.
+The project now has tokenization, tensor operations, and the complete transformer architecture. The model can run forward passes and produce predictions, though weights are random until training is implemented.
 
 ### Running Examples
 
 ```bash
-# Train tokenizers at multiple vocabulary sizes (30-60 seconds)
+# Train tokenizers (30-60 seconds)
 cargo run --release --example 01_train_tokenizers
 
-# See tensor operations in action (< 1 second)
+# See tensor operations (< 1 second)
 cargo run --release --example 02_tensor_operations
+
+# Explore model architecture (< 5 seconds)
+cargo run --release --example 03_model_architecture
 ```
 
-The tensor example demonstrates matrix multiplication performance, numerical stability with large values, and broadcasting behavior.
+The model architecture example shows parameter counts for different model sizes and demonstrates a complete forward pass.
 
 ## Getting Training Data
 
-Download Shakespeare's complete works from Project Gutenberg:
+Download Shakespeare's complete works:
 ```bash
 curl -o shakespeare.txt https://www.gutenberg.org/files/100/100-0.txt
 ```

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2025-10-11
+
+### Added
+- Complete GPT-2 transformer model architecture (forward pass)
+- Token and position embeddings
+- Layer normalization with learnable scale and shift
+- Multi-head self-attention with causal masking
+- MLP (feedforward) layers with GELU activation
+- Transformer blocks with residual connections
+- Configurable model sizes (tiny, small, medium, large)
+- Parameter counting utilities
+- Example: `03_model_architecture.rs` demonstrating model creation and forward pass
+
 ## [0.1.2] - 2025-10-11
 
 ### Added

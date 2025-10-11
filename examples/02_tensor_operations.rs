@@ -27,7 +27,7 @@ fn main() {
     println!("{}", "=".repeat(70));
 
     // ========== Basic Tensor Creation ==========
-    println!("\n{}",  "─".repeat(70));
+    println!("\n{}", "─".repeat(70));
     println!("1. Creating Tensors");
     println!("{}", "─".repeat(70));
 
@@ -190,8 +190,14 @@ fn main() {
         vec![2, 3], // 2 rows, 3 columns
     );
     println!("\nOriginal [2, 3]:");
-    println!("  Row 0: [{}, {}, {}]", matrix.data[0], matrix.data[1], matrix.data[2]);
-    println!("  Row 1: [{}, {}, {}]", matrix.data[3], matrix.data[4], matrix.data[5]);
+    println!(
+        "  Row 0: [{}, {}, {}]",
+        matrix.data[0], matrix.data[1], matrix.data[2]
+    );
+    println!(
+        "  Row 1: [{}, {}, {}]",
+        matrix.data[3], matrix.data[4], matrix.data[5]
+    );
 
     let transposed = matrix.transpose(0, 1);
     println!("\nTransposed [3, 2] (rows↔columns):");
