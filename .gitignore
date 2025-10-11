@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock file (optional for libraries, but keep it)
+# Cargo.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Training outputs
+tokenizer_runs/
+shakespeare_tokenizer_*.json
+checkpoint_*.bin
+training_log*.csv
+training_output*.log
+run_*/
+
+# Shakespeare corpus (optional - can be committed)
+# shakespeare.txt
