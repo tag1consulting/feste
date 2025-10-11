@@ -1,6 +1,6 @@
 [package]
 name = "feste"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Jeremy Andrews <jeremy@tag1.com>"]
 description = "Educational GPT-2 style language model implemented from scratch in Rust"

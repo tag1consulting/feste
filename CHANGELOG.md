@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2025-10-11
+
+### Added
+- Tensor type for multi-dimensional arrays with shape and stride support
+- Matrix multiplication with automatic sequential/parallel selection
+- Cache-blocked parallel matrix multiplication for large matrices (8×8 tiles)
+- Element-wise operations: add, subtract, multiply, divide
+- Scalar operations on tensors
+- Broadcasting support for operations on different shapes
+- Numerically stable softmax with max subtraction
+- Reshape and transpose operations
+- Statistical operations: mean, variance along axes
+- Masked fill operation for attention masks
+- Example: `02_tensor_operations.rs` demonstrating all tensor operations
+
 ## [0.1.1] - 2025-10-11
 
 ### Added

@@ -13,15 +13,21 @@ An educational implementation demonstrating how language models work by building
 ## Current Status
 
 **Phase 1 Complete: Tokenization**
+**Phase 2 Complete: Tensor Operations**
 
-The BPE tokenizer is fully implemented and working. It can train on text corpora, encode text to token IDs, and decode back to text with perfect round-trip accuracy.
+The project now has a working tokenizer and tensor library. The tensor implementation includes matrix multiplication with automatic parallelization, broadcasting, numerically stable softmax, and all operations needed for transformers.
 
-Example:
+### Running Examples
+
 ```bash
+# Train tokenizers at multiple vocabulary sizes (30-60 seconds)
 cargo run --release --example 01_train_tokenizers
+
+# See tensor operations in action (< 1 second)
+cargo run --release --example 02_tensor_operations
 ```
 
-This trains tokenizers at vocabulary sizes 256, 512, 1024, 2048, and 5000 on Shakespeare's complete works. Training takes about 30-60 seconds and demonstrates compression ratios improving with vocabulary size.
+The tensor example demonstrates matrix multiplication performance, numerical stability with large values, and broadcasting behavior.
 
 ## Getting Training Data
 
@@ -29,8 +35,6 @@ Download Shakespeare's complete works from Project Gutenberg:
 ```bash
 curl -o shakespeare.txt https://www.gutenberg.org/files/100/100-0.txt
 ```
-
-This 5.5MB file is public domain and serves as the training corpus.
 
 ## License
 
