@@ -25,5 +25,5 @@ training_log*.csv
 training_output*.log
 run_*/
 
-# Shakespeare corpus (optional - can be committed)
-# shakespeare.txt
+# Training data (download separately)
+shakespeare.txt
