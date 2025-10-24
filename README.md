@@ -12,9 +12,11 @@ An educational implementation demonstrating how language models work by building
 
 ## Current Status
 
-**Phases 1-3 Complete: Foundation Ready**
+**Phases 1-4 Complete: Training Infrastructure Ready**
 
-The project now has tokenization, tensor operations, and the complete transformer architecture. The model can run forward passes and produce predictions, though weights are random until training is implemented.
+The project has tokenization, tensor operations, model architecture, and complete training infrastructure including backpropagation through all layers, Adam optimization, and gradient clipping.
+
+Training examples will be added in Phase 5.
 
 ### Running Examples
 
@@ -22,14 +24,15 @@ The project now has tokenization, tensor operations, and the complete transforme
 # Train tokenizers (30-60 seconds)
 cargo run --release --example 01_train_tokenizers
 
-# See tensor operations (< 1 second)
+# Tensor operations (< 1 second)
 cargo run --release --example 02_tensor_operations
 
-# Explore model architecture (< 5 seconds)
+# Model architecture (< 5 seconds)
 cargo run --release --example 03_model_architecture
-```
 
-The model architecture example shows parameter counts for different model sizes and demonstrates a complete forward pass.
+# Training infrastructure demo
+cargo run --release --example 04_training_infrastructure
+```
 
 ## Getting Training Data
 

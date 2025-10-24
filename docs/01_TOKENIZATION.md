@@ -1,6 +1,6 @@
 # Tokenization: Text to Numbers
 
-This document is a companion to the blog post "Building an LLM From Scratch in Rust, Part 1: Tokenization". It covers implementation details and provides guidance for working with the tokenization code in this repository.
+This document is a companion to the blog post ["Building an LLM From Scratch in Rust, Part 1: Tokenization"](https://www.tag1.com/how-to/part1-tokenization-building-an-llm-from-scratch-in-rust/). It covers implementation details and provides guidance for working with the tokenization code in this repository.
 
 ## What's Here
 

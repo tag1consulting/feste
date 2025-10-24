@@ -1,6 +1,6 @@
 # Tensor Operations: The Foundation of Neural Networks
 
-This document is a companion to the blog post "Building an LLM From Scratch in Rust, Part 2: Tensor Operations". It covers implementation details and provides guidance for working with the tensor code in this repository.
+This document is a companion to the blog post ["Building an LLM From Scratch in Rust, Part 2: Tensor Operations"](https://www.tag1.com/how-to/part2-tensor-operations-building-an-llm-from-scratch/). It covers implementation details and provides guidance for working with the tensor code in this repository.
 
 ## What's Here
 

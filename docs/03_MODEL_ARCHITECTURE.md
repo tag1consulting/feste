@@ -1,12 +1,10 @@
 # Model Architecture: Building GPT-2 from Scratch
 
-This document is a companion to the blog post "Building an LLM From Scratch in Rust, Part 3: Model Architecture". It covers implementation details and provides guidance for working with the model architecture code in this repository.
+This document is a companion to the blog post ["Building an LLM From Scratch in Rust, Part 3: Model Architecture"](https://www.tag1.com/how-to/part3-model-architecture-building-an-llm-from-scratch/). It covers implementation details and provides guidance for working with the model architecture code in this repository.
 
 ## What's Here
 
-This phase implements a complete GPT-2 style transformer model with all core components. The model can perform **forward passes** (inference) but does not yet include training capabilities (backward pass, optimization).
-
-By the end of this phase, you'll have a working GPT-2 Small architecture transformer (768 dimensions, 12 layers, 12 heads, 1024 token context) that can be trained on a CPU. With the full GPT-2 vocabulary (50,257 tokens), this reaches 163 million parameters, or 124M if we implemented weight tying. For demonstration purposes, we use a smaller vocabulary, resulting in 87M parameters. The weights are random, so predictions are meaningless until training.
+This phase implements a complete GPT-2 style transformer model. The model can perform forward passes (inference) but does not yet include training capabilities. Weights are random, so predictions are meaningless until training.
 
 **Implementation files:**
 - [src/model.rs](../src/model.rs) - Core model components (Embedding, LayerNorm, MLP, Attention, Block, GPT)
@@ -18,11 +16,11 @@ By the end of this phase, you'll have a working GPT-2 Small architecture transfo
 cargo run --release --example 03_model_architecture
 ```
 
-This demonstrates model creation, parameter counting, and forward passes through the architecture.
+This creates models of various sizes and runs forward passes through the architecture.
 
 ## Expected Output
 
-The example creates models of various sizes and shows parameter counts:
+The example creates progressively larger models:
 
 ```
 ======================================================================
@@ -55,239 +53,73 @@ All tests completed successfully!
 
 The key indicator is that forward passes complete without errors and produce output of the expected shape `[batch, seq_len, vocab_size]`.
 
-## Understanding the Architecture
+## Understanding the Results
 
-### What is a Transformer?
+### Model Sizes
 
-The transformer is the architecture that powers modern language models. It processes all tokens in a sequence simultaneously using attention mechanisms, unlike RNNs which process sequentially. This parallelization makes training orders of magnitude faster and allows models to handle much longer context.
+Four configurations are available, each suited to different purposes:
 
-The architecture involves two key operations stacked in multiple layers:
-1. **Attention mechanisms** - Let each token look at other tokens and decide which are relevant
-2. **Feedforward networks** - Process what the attention mechanisms found
-
-GPT-2 uses 12 of these layers stacked together. GPT-3 uses 96.
-
-### The Forward Pass
-
-The forward pass flows through several stages:
-
-```text
-Token IDs [batch, seq]
-  ↓
-Token Embeddings [batch, seq, n_embd]
-  + Position Embeddings
-  ↓
-Transformer Block 1: Attention + MLP
-  ↓
-Transformer Block 2: Attention + MLP
-  ↓
-  ... (n_layers blocks)
-  ↓
-Transformer Block N: Attention + MLP
-  ↓
-Final LayerNorm
-  ↓
-Linear Projection → [batch, seq, vocab_size]
-  ↓
-Logits (scores for each token)
-```
-
-Each stage transforms the data. Token IDs become rich vector representations. These flow through transformer layers of attention and feedforward processing. The final layer maps back to vocabulary space, producing a score for every possible next token.
-
-## Core Components
-
-### 1. Embeddings: Token and Position
-
-**Token Embeddings** convert discrete token IDs into continuous vectors.
-
+**Tiny (0.8M parameters)**
 ```rust
-pub struct Embedding {
-    pub weight: Tensor,  // [vocab_size, n_embd]
-}
+vocab_size: 512, n_embd: 128, n_heads: 4, n_layers: 3, block_size: 128
 ```
+Very fast, good for debugging and testing changes. Forward pass completes in under 10ms.
 
-For a vocabulary of 50,257 tokens with 768-dimensional embeddings, this matrix contains 38 million parameters. Each token ID gets its own row in this matrix. Looking up an embedding is just indexing into the matrix and copying those n_embd values.
-
-**Position Embeddings** add positional information since transformers process all tokens in parallel and have no inherent sense of order.
-
+**Small (3.5M parameters)**
 ```rust
-pub wpe: Embedding,  // [block_size, n_embd]
+vocab_size: 512, n_embd: 256, n_heads: 4, n_layers: 4, block_size: 256
 ```
+Good balance for experimentation. Large enough to learn patterns, small enough to iterate quickly.
 
-Position 0, 1, 2, ... each get a learned vector. These are added element-wise to token embeddings. The block_size (1,024 for GPT-2) is the maximum sequence length, also known as the context window.
-
-When processing a token at position i:
-```text
-Token embedding:    [0.1,  -0.3,  0.2,  ...] (n_embd values)
-Position embedding: [0.05, -0.02, 0.01, ...] (n_embd values)
-Combined:           [0.15, -0.32, 0.21, ...] (n_embd values)
-```
-
-The result captures both what the token is and where it appears in the sequence.
-
-### 2. Layer Normalization
-
-**Purpose:** Stabilize activations and improve training.
-
+**Medium (20-40M parameters)**
 ```rust
-pub struct LayerNorm {
-    pub gamma: Tensor,  // [n_embd] - scale parameter
-    pub beta: Tensor,   // [n_embd] - shift parameter
-    pub eps: f32,       // typically 1e-5
-}
+vocab_size: 512, n_embd: 384, n_heads: 6, n_layers: 6, block_size: 256
 ```
+Larger capacity, still manageable on CPU. Expect forward passes around 200ms.
 
-**Formula:**
-```text
-output = ((input - mean) / sqrt(variance + eps)) × gamma + beta
-```
-
-For each token in the sequence, we compute mean and variance across the n_embd dimensions, normalize to mean=0 and variance=1, then scale and shift with learned parameters.
-
-Layer normalization happens twice per transformer block (before attention and before MLP) and once after all blocks (final layer norm).
-
-**Why layer norm (not batch norm)?**
-- Works with variable sequence lengths
-- Normalizes per-sample, doesn't depend on batch statistics
-- More stable for small batches
-- Standard for transformers
-
-**Why pre-norm?**
-
-GPT-2 uses pre-norm (normalize before sublayers) rather than post-norm (normalize after). Pre-norm is more stable for very deep networks because it prevents the residual path from accumulating unnormalized values through many layers.
-
-```text
-Pre-norm:  x = x + Attention(LayerNorm(x))
-Post-norm: x = LayerNorm(x + Attention(x))
-```
-
-### 3. Multi-Head Self-Attention
-
-**Purpose:** Allow the model to focus on different parts of the input simultaneously.
-
-Attention uses three projections of the input: queries (Q), keys (K), and values (V). Think of it like a database lookup. The query is what you're searching for. The keys are labels on every piece of information. The values are the actual information.
-
-**Single-head attention process:**
-```text
-1. Project input to Q, K, V: [batch, seq, n_embd] → [batch, seq, head_dim]
-2. Compute scores: Q @ K^T / sqrt(head_dim) → [batch, seq, seq]
-3. Apply causal mask (set future positions to -inf)
-4. Softmax to get attention weights → [batch, seq, seq]
-5. Apply to values: attention_weights @ V → [batch, seq, head_dim]
-```
-
-The division by sqrt(head_dim) is a scaling factor. Without it, dot products grow large as dimensions increase, pushing softmax into regions where gradients are tiny.
-
-**Multi-head attention** runs several attention operations in parallel. Each "head" has its own Q, K, V projections and learns to attend to different patterns.
-
-```text
-Example with n_embd=768, n_heads=12:
-- Split into 12 heads of dimension 64 each
-- Each head computes attention independently
-- Concatenate: [head1, head2, ..., head12] → 768 dimensions
-- Final projection back to 768 dimensions
-```
-
-One head might focus on syntactic relationships (nouns attending to verbs). Another might track thematic connections (food words attending to each other). A third might focus on local context (nearby words). The model learns what each head should focus on during training.
-
-**Causal Masking:**
-
-When predicting the next token, the model shouldn't peek at future tokens. We enforce this by setting attention scores for future positions to negative infinity before softmax:
-
-```text
-Attention mask for seq_len=4:
-[✓ ✗ ✗ ✗]  position 0 can't see future
-[✓ ✓ ✗ ✗]  position 1 can't see positions 2, 3
-[✓ ✓ ✓ ✗]  position 2 can't see position 3
-[✓ ✓ ✓ ✓]  position 3 can see all past
-```
-
-Since exp(-infinity) = 0, masked positions contribute nothing after softmax. This is called causal or autoregressive attention.
-
-**Implementation:**
+**Large / GPT-2 Small (163M parameters)**
 ```rust
-pub struct MultiHeadAttention {
-    pub c_attn: Linear,    // [n_embd, 3*n_embd] - projects to Q, K, V all at once
-    pub c_proj: Linear,    // [n_embd, n_embd] - output projection
-    pub n_heads: usize,
-    pub head_dim: usize,   // n_embd / n_heads
-}
+vocab_size: 50257, n_embd: 768, n_heads: 12, n_layers: 12, block_size: 1024
+```
+Full GPT-2 Small architecture. Forward passes take 2-3 seconds on CPU. This is the standard benchmark size.
+
+### Parameter Count Breakdown
+
+Understanding where parameters live helps estimate memory requirements:
+
+```
+Embeddings:
+  Token: vocab_size × n_embd
+  Position: block_size × n_embd
+
+Per Transformer Block:
+  Attention QKV: n_embd × (3 × n_embd) + 3×n_embd (bias)
+  Attention output: n_embd × n_embd + n_embd (bias)
+  Attention layer norm: 2 × n_embd (gamma + beta)
+  MLP expand: n_embd × (4 × n_embd) + 4×n_embd (bias)
+  MLP project: (4 × n_embd) × n_embd + n_embd (bias)
+  MLP layer norm: 2 × n_embd
+
+Final:
+  Layer norm: 2 × n_embd
+  LM head: n_embd × vocab_size + vocab_size (bias)
 ```
 
-The implementation uses a clever trick: one large matrix produces all heads' Q, K, V at once, then we reshape to separate the heads. More efficient than 12 separate matrix multiplications.
-
-### 4. MLP (Feedforward Network)
-
-**Purpose:** Process each position independently after attention mixes information across positions.
-
-```rust
-pub struct MLP {
-    pub c_fc: Linear,    // [n_embd, 4*n_embd] - expansion
-    pub c_proj: Linear,  // [4*n_embd, n_embd] - projection
-}
+**Example for Small model** (n_embd=256, n_layers=4, vocab=512, block_size=256):
+```
+Token embeddings: 512 × 256 = 131,072
+Position embeddings: 256 × 256 = 65,536
+Per block: ~788,480
+4 blocks: 3,153,920
+Final layer norm + LM head: ~131,584
+Total: ~3,482,112 parameters
 ```
 
-**Architecture:**
-```text
-Input [batch, seq, n_embd]
-  ↓
-Linear: n_embd → 4×n_embd (expansion)
-  ↓
-GELU activation
-  ↓
-Linear: 4×n_embd → n_embd (projection)
-  ↓
-Output [batch, seq, n_embd]
-```
+At 4 bytes per float32, that's about 14 MB for weights alone.
 
-For GPT-2 Small with n_embd=768, the intermediate dimension is 3,072. Every token's 768 numbers get expanded to 3,072, transformed, and compressed back to 768.
+## Implementation Details
 
-**Why 4× expansion?**
-
-The original "Attention is All You Need" paper used 4×, and it worked well, so it stuck. Provides substantial capacity without making the model impractically expensive.
-
-**GELU Activation:**
-
-GELU (Gaussian Error Linear Unit) is a smooth activation that works better than ReLU for transformers.
-
-```text
-GELU(x) ≈ 0.5 × x × (1 + tanh(√(2/π) × (x + 0.044715 × x³)))
-```
-
-This approximation is fast and accurate. For negative inputs, GELU outputs small negative values rather than zero (like ReLU). The smooth curve helps gradients flow during training.
-
-### 5. Transformer Block
-
-**Purpose:** Combine attention and MLP with residual connections.
-
-```rust
-pub struct Block {
-    pub ln_1: LayerNorm,  // before attention
-    pub attn: MultiHeadAttention,
-    pub ln_2: LayerNorm,  // before MLP
-    pub mlp: MLP,
-}
-```
-
-**Architecture:**
-```text
-Input
-  ↓
-  ├─→ LayerNorm → Attention → + (residual)
-  ↓                            ↓
-  ├─→ LayerNorm → MLP ────────→ + (residual)
-  ↓
-Output
-```
-
-**Residual connections** are critical for training deep networks:
-```text
-output = input + sublayer(input)
-```
-
-Instead of replacing the input, we add the sublayer's output to the input. This creates a direct path for gradients to flow backward during training. Even if the gradient through the sublayer vanishes, the gradient through the residual connection remains. This "gradient highway" lets us stack 12, 96, or more layers.
-
-### 6. Complete GPT Model
+### Core Data Structures
 
 ```rust
 pub struct GPT {
@@ -297,108 +129,39 @@ pub struct GPT {
     pub ln_f: LayerNorm,       // final layer norm
     pub lm_head: Linear,       // output projection [n_embd, vocab_size]
 }
+
+pub struct Block {
+    pub ln_1: LayerNorm,       // before attention
+    pub attn: MultiHeadAttention,
+    pub ln_2: LayerNorm,       // before MLP
+    pub mlp: MLP,
+}
+
+pub struct MultiHeadAttention {
+    pub c_attn: Linear,        // [n_embd, 3*n_embd] - Q, K, V projection
+    pub c_proj: Linear,        // [n_embd, n_embd] - output projection
+    pub n_heads: usize,
+    pub head_dim: usize,       // n_embd / n_heads
+}
+
+pub struct MLP {
+    pub c_fc: Linear,          // [n_embd, 4*n_embd] - expansion
+    pub c_proj: Linear,        // [4*n_embd, n_embd] - projection
+}
 ```
 
-The forward pass:
-1. Look up token embeddings
-2. Add position embeddings
-3. Pass through all transformer blocks
-4. Apply final layer normalization
-5. Project to vocabulary space
+### Initialization Scheme
 
-The final output has shape `[batch, seq_len, vocab_size]`. Each position gets a score for every token in the vocabulary. These scores (logits) represent the model's belief about what token should come next.
+Following GPT-2's initialization:
 
-## Model Configurations
-
-Different configurations trade off between size, speed, and capacity:
-
-### Tiny (for testing)
-```rust
-vocab_size: 512, n_embd: 128, n_heads: 4, n_layers: 3, block_size: 128
-```
-**~0.8M parameters** - Very fast, good for debugging
-
-### Small (for experiments)
-```rust
-vocab_size: 512, n_embd: 256, n_heads: 4, n_layers: 4, block_size: 256
-```
-**~3.5M parameters** - Good balance for experimentation
-
-### Medium
-```rust
-vocab_size: 512, n_embd: 384, n_heads: 6, n_layers: 6, block_size: 256
-```
-**~20-40M parameters** - Larger but manageable on CPU
-
-### Large (GPT-2 Small)
-```rust
-vocab_size: 50257, n_embd: 768, n_heads: 12, n_layers: 12, block_size: 1024
-```
-**~163M parameters** - Full GPT-2 Small size (without weight tying)
-
-## Parameter Count Formula
-
-Understanding where parameters live helps estimate memory requirements:
-
-```text
-Embeddings:
-  Token: vocab_size × n_embd
-  Position: block_size × n_embd
-
-Per Transformer Block:
-  Attention:
-    QKV projection: n_embd × (3 × n_embd)
-    Output projection: n_embd × n_embd
-    Layer norm: 2 × n_embd (gamma + beta)
-  MLP:
-    Expand: n_embd × (4 × n_embd)
-    Project: (4 × n_embd) × n_embd
-    Layer norm: 2 × n_embd
-
-Final:
-  Layer norm: n_embd (gamma + beta)
-  LM head: n_embd × vocab_size
-
-Total ≈ embeddings + (n_layers × per_layer) + final
-```
-
-**Example calculation for Small model** (n_embd=256, n_layers=4, vocab=512):
-```text
-Embeddings: 512×256 + 256×256 = 196,608
-Per block:
-  Attention: 256×768 + 256×256 + 512 = 263,168
-  MLP: 256×1024 + 1024×256 + 512 = 525,312
-  Total per block: ~788,480
-4 blocks: 3,153,920
-Final: 512 + 256×512 = 131,584
-Total: ~3,482,112 parameters
-```
-
-At 4 bytes per float32, that's about 14 MB of memory just for weights. Add activations during the forward pass and you need significantly more. GPT-2 Small with 163M parameters needs about 650 MB just for weights.
-
-## Implementation Details
-
-### Memory Layout
-
-All tensors use **row-major (C-style)** layout:
-- Shape `[batch, seq, embd]`
-- Data order: `[batch0_seq0_embd0, batch0_seq0_embd1, ..., batch0_seq1_embd0, ...]`
-
-The last dimension is most tightly packed. Values next to each other in the last dimension sit next to each other in memory. Perfect for cache efficiency.
-
-### Initialization
-
-Following GPT-2 initialization scheme:
-
-**Embeddings:** N(0, 0.02) - small random values
+**Embeddings and Linear weights:** Normal distribution N(0, 0.02)
 ```rust
 Tensor::randn(&[vocab_size, n_embd], 0.0, 0.02)
 ```
 
-**Linear layers:** N(0, 0.02) for weights, zeros for biases
+**Linear biases:** Zeros
 ```rust
-weight: Tensor::randn(&[out_features, in_features], 0.0, 0.02)
-bias: Tensor::zeros(vec![out_features])
+Tensor::zeros(vec![out_features])
 ```
 
 **Layer norm:** gamma=1, beta=0 (identity transformation initially)
@@ -407,58 +170,86 @@ gamma: Tensor::ones(vec![n_embd])
 beta: Tensor::zeros(vec![n_embd])
 ```
 
-### Attention Implementation
+The 0.02 standard deviation is small enough to prevent exploding activations at initialization but large enough to break symmetry between neurons.
+
+### Attention Implementation Tricks
 
 **Single projection for Q, K, V:**
-- One Linear(n_embd, 3×n_embd) instead of three separate layers
-- Split output into Q, K, V
-- More efficient (one matrix multiply instead of three)
 
-**Head splitting:**
-- Reshape `[batch, seq, n_embd]` → `[batch, n_heads, seq, head_dim]`
-- Each head operates independently
-- Reshape back: `[batch, n_heads, seq, head_dim]` → `[batch, seq, n_embd]`
+Instead of three separate matrix multiplications:
+```rust
+// Naive approach (not what we do)
+let q = input.matmul(&w_q);
+let k = input.matmul(&w_k);
+let v = input.matmul(&w_v);
+```
 
-**Why n_heads must divide n_embd:**
+We use one large matrix that produces all three at once:
+```rust
+// Actual implementation
+let qkv = input.matmul(&c_attn.weight);  // [batch, seq, 3*n_embd]
+// Split into Q, K, V
+```
 
-head_dim = n_embd / n_heads must be an integer. Common configurations:
+One matrix multiply is faster than three, even though it's 3x larger. Memory access patterns are better and there's less kernel launch overhead.
+
+**Head dimension constraint:**
+
+`n_heads` must evenly divide `n_embd`. The head dimension is:
+```rust
+head_dim = n_embd / n_heads
+```
+
+Common configurations use head_dim=64:
 - n_embd=768, n_heads=12 → head_dim=64
-- n_embd=1024, n_heads=16 → head_dim=64
 - n_embd=256, n_heads=4 → head_dim=64
 
-head_dim=64 is common because attention scores scale by 1/√head_dim = 1/8, a nice factor for numerical stability.
+This isn't arbitrary. Attention scores are scaled by 1/√head_dim = 1/8, which keeps values in a numerically stable range.
 
-## What's Not Included (Yet)
+**Reshaping for parallel heads:**
 
-This phase implements **forward pass only**. Training requires:
+The implementation reshapes tensors to process all heads in parallel:
+```rust
+// [batch, seq, n_embd] → [batch, n_heads, seq, head_dim]
+let q = q.reshape(&[batch, seq, n_heads, head_dim]).transpose(1, 2);
+```
 
-### Backward Pass (Backpropagation)
-- Compute gradients for all parameters
-- Chain rule through all layers
-- Cache activations for gradient computation
+Each head then computes attention independently. After attention, we reshape back:
+```rust
+// [batch, n_heads, seq, head_dim] → [batch, seq, n_embd]
+let out = out.transpose(1, 2).reshape(&[batch, seq, n_embd]);
+```
 
-### Optimizer (Adam)
-- First moment (momentum)
-- Second moment (RMSprop-style adaptive learning rates)
-- Weight decay
-- Learning rate schedule
+### GELU Approximation
 
-### Training Loop
-- Load batches of data
-- Forward pass
-- Loss computation (cross-entropy)
-- Backward pass
-- Optimizer step
-- Gradient clipping (prevent exploding gradients)
+We use the tanh approximation for GELU activation:
 
-### Additional Training Features
-- Dropout (regularization)
-- Gradient accumulation (simulate larger batches)
-- Checkpointing (save/load models)
-- Learning rate warmup
-- Mixed precision training
+```rust
+fn gelu(x: f32) -> f32 {
+    0.5 * x * (1.0 + ((2.0_f32 / PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
+}
+```
 
-These will be covered in Part 4: Training Infrastructure.
+This matches GPT-2's implementation. The exact GELU uses the error function (erf), but the tanh approximation is faster and the difference is negligible for model quality.
+
+### Memory Layout
+
+All tensors use row-major (C-style) layout:
+- Shape `[batch, seq, embd]`
+- Last dimension is contiguous in memory
+- Walking along the embedding dimension has perfect cache locality
+
+This matters for performance. Matrix multiplications access the last dimension repeatedly, so having it contiguous means fewer cache misses.
+
+## What We Didn't Implement
+
+**Weight tying:** GPT-2 shares weights between token embeddings and the output projection (lm_head). This reduces parameters significantly (38M fewer for GPT-2 Small). We keep them separate for clarity. The math works the same either way.
+
+**Dropout:** Regularization technique that randomly zeros activations during training. Not needed for forward-only inference. Will be added in Part 4.
+
+**Flash Attention:** Memory-efficient attention that avoids materializing the full attention matrix. Our implementation creates the full [seq, seq] matrix, which limits sequence length. Flash attention would allow longer contexts but adds significant complexity.
+
+**KV Cache:** During generation, we recompute attention for all previous tokens on every step. Caching key and value tensors would speed up generation significantly. Covered in Part 6.
 
 ## Common Issues
 
@@ -468,7 +259,9 @@ These will be covered in Part 4: Training Infrastructure.
 thread 'main' panicked at 'Attention dimension mismatch'
 ```
 
-Check that n_heads divides n_embd evenly. If n_embd=768 and n_heads=12, head_dim=64 works. If n_embd=768 and n_heads=10, head_dim=76.8 doesn't work.
+Check that n_heads divides n_embd evenly:
+- n_embd=768, n_heads=12 → head_dim=64 ✓
+- n_embd=768, n_heads=10 → head_dim=76.8 ✗
 
 ### Out of memory
 
@@ -476,11 +269,11 @@ Check that n_heads divides n_embd evenly. If n_embd=768 and n_heads=12, head_dim
 memory allocation of ... bytes failed
 ```
 
-Large models consume significant memory. GPT-2 Small (163M parameters) needs ~650 MB just for weights, plus several GB for activations during forward pass. Try smaller configurations:
-- Reduce n_embd (768 → 384 → 256)
-- Reduce n_layers (12 → 6 → 4)
-- Reduce block_size (1024 → 256 → 128)
-- Reduce vocab_size (50257 → 512)
+Large models consume significant memory. GPT-2 Small needs ~650 MB for weights plus several GB for activations. Try smaller configurations:
+- Reduce n_embd: 768 → 384 → 256
+- Reduce n_layers: 12 → 6 → 4
+- Reduce block_size: 1024 → 256 → 128
+- Reduce vocab_size: 50257 → 512
 
 ### Slow forward passes
 
@@ -489,99 +282,52 @@ Make sure you're compiling with `--release`:
 cargo run --release --example 03_model_architecture
 ```
 
-Debug builds are 10-100x slower than release builds.
+Debug builds are 10-100x slower. If still slow, check your model size. GPT-2 Small (163M params) takes 2-3 seconds per forward pass on CPU. That's expected.
 
 ### NaN in output
 
-With random initialization, the model sometimes produces NaN (not a number) values, especially for very deep networks. This indicates numerical instability. Not a problem for this demonstration since we're just verifying the architecture works. During training, proper initialization and gradient clipping will prevent this.
+With random initialization, very deep networks can produce NaN values due to numerical instability. This isn't a problem for the architecture demonstration. During training, proper gradient clipping prevents this.
+
+If you see NaN consistently:
+1. Check that layer norm epsilon is positive (typically 1e-5)
+2. Verify softmax has the max-subtraction stability trick
+3. Try smaller initialization (0.01 instead of 0.02)
 
 ## Benchmarking
 
-Forward pass times on M1 MacBook Pro (8 performance cores):
+Forward pass times on M1 MacBook Pro (8 performance cores), batch_size=1:
 
-- **Tiny model** (0.8M params): ~8ms for batch_size=1, seq_len=16
-- **Small model** (3.5M params): ~35ms for batch_size=1, seq_len=32
-- **Medium model** (20-40M params): ~200ms for batch_size=1, seq_len=64
-- **GPT-2 Small** (163M params): ~2-3 seconds for batch_size=1, seq_len=128
+| Model | Parameters | seq_len=16 | seq_len=64 | seq_len=256 |
+|-------|------------|------------|------------|-------------|
+| Tiny | 0.8M | ~8ms | ~25ms | ~150ms |
+| Small | 3.5M | ~15ms | ~50ms | ~300ms |
+| Medium | 20-40M | ~80ms | ~200ms | ~1.2s |
+| GPT-2 Small | 163M | ~400ms | ~1.5s | ~8s |
 
-Times scale roughly with:
-- Number of parameters (more layers, larger n_embd)
-- Sequence length (attention is O(n²) in sequence length)
-- Batch size (linear scaling)
+Times scale with:
+- **Parameters:** More layers and larger n_embd means more computation
+- **Sequence length:** Attention is O(n²), so doubling sequence length roughly quadruples attention time
+- **Batch size:** Linear scaling (2x batch = 2x time)
 
 Your results will vary based on CPU architecture and core count.
 
-## Key Design Decisions
-
-### Why Multi-Head Attention?
-
-**Single head:** Model can only attend one way
-
-**Multiple heads:** Different heads learn different patterns
-- Syntax head: noun-verb agreement
-- Semantic head: related concepts
-- Position head: nearby tokens
-- Reference head: pronouns to referents
-
-The model learns what each head should focus on. We don't specify it. The learning process naturally leads to specialization.
-
-### Why Causal Masking?
-
-Language modeling is **autoregressive:** predict token N+1 given tokens 0..N.
-
-```text
-Sentence: "The cat sat on the"
-Position 0: [] → predict "The"
-Position 1: ["The"] → predict "cat"
-Position 2: ["The", "cat"] → predict "sat"
-...
-```
-
-Position i uses tokens 0..i to predict token i+1, so it *cannot see* i+1..N. Masking enforces this.
-
-### Why Residual Connections?
-
-**Without residuals:** Deep networks have vanishing gradients
-
-**With residuals:** Gradients can flow directly through skip connections
-
-```text
-output = input + sublayer(input)
-gradient: ∂L/∂input = ∂L/∂output × (1 + ∂sublayer/∂input)
-```
-
-The "1 +" term ensures gradients flow even if sublayer gradients vanish. This is why we can stack 12, 96, or more layers.
-
-### Why is Attention O(n²)?
-
-For sequence length n:
-- Q @ K^T creates [n, n] matrix (every position attends to every position)
-- Storage: O(n²)
-- Computation: O(n² × d) where d is head dimension
-
-This quadratic scaling limits context length. GPT-2's 1,024 tokens is manageable. GPT-4's 128K context requires substantial memory. This is why there's active research into efficient attention mechanisms (sparse attention, linear attention, flash attention).
-
 ## Next Steps
 
-After understanding the model architecture:
+After running the architecture example:
 
-1. **Run the example** - See model creation and forward passes with different sizes
-2. **Experiment with configurations** - Try different n_embd, n_heads, n_layers
-3. **Trace a forward pass** - Follow data through embeddings → blocks → output
-4. **Count parameters** - Understand where memory goes
+1. **Trace a forward pass** - Add print statements to see tensor shapes at each stage
+2. **Experiment with configurations** - Try different n_embd, n_heads, n_layers combinations
+3. **Profile memory usage** - Watch system memory while creating large models
+4. **Break things intentionally** - Try invalid configurations to understand the error messages
 
-To actually use the model:
-- **Part 4: Training Infrastructure** - Implement backpropagation, optimizer, training loop
-- **Part 6: Text Generation** - Sample from predictions to generate text
+Move on to Part 4: Training Infrastructure to learn how backpropagation and optimization turn random weights into a working language model.
 
 ## Further Reading
 
-- **Attention Is All You Need** (Vaswani et al., 2017) - Original transformer paper introducing multi-head attention and the architecture we're implementing
+- **Attention Is All You Need** (Vaswani et al., 2017) - Original transformer paper: https://arxiv.org/abs/1706.03762
 
-- **Language Models are Unsupervised Multitask Learners** (Radford et al., 2019) - GPT-2 paper describing the architecture details and training approach
+- **Language Models are Unsupervised Multitask Learners** (Radford et al., 2019) - GPT-2 paper: https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf
 
-- **The Illustrated Transformer** (Jay Alammar) - Visual guide to transformer architecture with diagrams and animations
+- **The Illustrated Transformer** (Jay Alammar) - Visual guide with diagrams: https://jalammar.github.io/illustrated-transformer/
 
-- **GPT-2 Source Code** (OpenAI) - Original TensorFlow implementation for reference: https://github.com/openai/gpt-2
-
-- **nanoGPT** (Andrej Karpathy) - Minimal PyTorch implementation that heavily influenced this project: https://github.com/karpathy/nanoGPT
+- **nanoGPT** (Andrej Karpathy) - Minimal PyTorch GPT that influenced this project: https://github.com/karpathy/nanoGPT

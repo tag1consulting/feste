@@ -17,13 +17,6 @@
 .DS_Store
 Thumbs.db
 
-# Training outputs
-tokenizer_runs/
-shakespeare_tokenizer_*.json
-checkpoint_*.bin
-training_log*.csv
-training_output*.log
-run_*/
-
-# Training data (download separately)
+# Example outputs and training data
+data/
 shakespeare.txt

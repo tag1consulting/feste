@@ -6,7 +6,7 @@
 //! - Analyzing vocabulary composition and compression ratios
 //! - Saving tokenizers and analysis to timestamped output directories
 //!
-//! Output is written to: `tokenizer_runs/run_<timestamp>/`
+//! Output is written to: `data/example_tokenizer_<timestamp>/`
 //!
 //! # Usage
 //!
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create timestamped output directory
     // Uses Unix timestamp for simple, dependency-free timestamping
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    let run_dir = format!("tokenizer_runs/run_{}", timestamp);
+    let run_dir = format!("data/example_tokenizer_{}", timestamp);
     fs::create_dir_all(&run_dir)?;
 
     println!("\nOutput directory: {}\n", run_dir);

@@ -9,6 +9,9 @@
 //! - [`tokenizer`] - Byte Pair Encoding (BPE) tokenization
 //! - [`tensor`] - Multi-dimensional arrays and operations
 //! - [`model`] - GPT-2 model architecture (forward pass only)
+//! - [`gpt2_trainable`] - Trainable GPT-2 with backward pass
+//! - [`train`] - Data loading for training
+//! - [`training_logger`] - Training metrics and logging
 //!
 //! # Example: Tokenization
 //!
@@ -55,11 +58,21 @@
 //! assert_eq!(logits.shape, vec![1, 4, 512]); // [batch, seq, vocab]
 //! ```
 
+pub mod gpt2_trainable;
+pub mod gradients;
+pub mod layers;
 pub mod model;
+pub mod optimizer;
 pub mod tensor;
 pub mod tokenizer;
+pub mod train;
+pub mod training_logger;
 
 // Re-export main types for convenience
+pub use gradients::{clip_gradients, compute_grad_norm};
 pub use model::{gelu, Config, GPT2};
+pub use optimizer::{adamw_update, AdamWOptimizer};
 pub use tensor::Tensor;
 pub use tokenizer::{BPETokenizer, TokenizerStats};
+pub use train::{Batch, TextDataLoader, TrainingConfig};
+pub use training_logger::{compute_dataset_loss, train_val_split, TrainingLogger};
