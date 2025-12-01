@@ -19,4 +19,6 @@ Thumbs.db
 
 # Example outputs and training data
 data/
+*log
 shakespeare.txt
+chatbot/

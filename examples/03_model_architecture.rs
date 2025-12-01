@@ -272,7 +272,10 @@ fn main() {
         "  n_embd={}, n_heads={}, head_dim={}",
         tiny_config.n_embd, tiny_config.n_heads, tiny_head_dim
     );
-    println!("  The entire {} dimensions attend as one unit", tiny_config.n_embd);
+    println!(
+        "  The entire {} dimensions attend as one unit",
+        tiny_config.n_embd
+    );
     println!("  Simple but limited in what patterns it can learn");
 
     println!("\nMulti-head attention (GPT-2 Small model):");
@@ -289,21 +292,27 @@ fn main() {
     println!("  Each head can learn different attention patterns in parallel");
 
     println!("\nHow multi-head attention works:");
-    println!("  1. Project input to Q, K, V: [batch, seq, {}]", gpt2_config.n_embd);
+    println!(
+        "  1. Project input to Q, K, V: [batch, seq, {}]",
+        gpt2_config.n_embd
+    );
     println!(
         "  2. Reshape into heads: [batch, {}, seq, {}]",
         gpt2_config.n_heads, gpt2_head_dim
     );
     println!("  3. Each head computes attention independently");
-    println!(
-        "     Head 1 might focus on nearby words (local syntax)");
-    println!(
-        "     Head 2 might focus on sentence structure (long-range dependencies)");
-    println!(
-        "     Head 3 might focus on semantic relationships");
+    println!("     Head 1 might focus on nearby words (local syntax)");
+    println!("     Head 2 might focus on sentence structure (long-range dependencies)");
+    println!("     Head 3 might focus on semantic relationships");
     println!("     ... and so on for all {} heads", gpt2_config.n_heads);
-    println!("  4. Concatenate all heads: [batch, seq, {}]", gpt2_config.n_embd);
-    println!("  5. Output projection: [batch, seq, {}]", gpt2_config.n_embd);
+    println!(
+        "  4. Concatenate all heads: [batch, seq, {}]",
+        gpt2_config.n_embd
+    );
+    println!(
+        "  5. Output projection: [batch, seq, {}]",
+        gpt2_config.n_embd
+    );
 
     // ========== Causal Attention Explanation ==========
     println!("\n{}", "─".repeat(70));

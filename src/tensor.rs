@@ -880,54 +880,54 @@ impl Tensor {
     ///
     /// # Arguments
     ///
-    /// * `axis` - Axis along which to compute variance
+    /// * `axis` - Axis along which to compute variance (typically -1 for last dimension)
     /// * `keepdim` - Whether to keep the reduced dimension
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use feste::Tensor;
+    /// let x = Tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+    /// let var = x.var(-1, true); // Variance along last dimension
+    /// assert_eq!(var.shape, vec![2, 1]);
+    /// ```
     pub fn var(&self, axis: isize, keepdim: bool) -> Tensor {
-        let axis_pos = if axis < 0 {
-            (self.shape.len() as isize + axis) as usize
-        } else {
-            axis as usize
-        };
+        // Compute variance along the specified axis (typically last dimension for LayerNorm)
+        if axis == -1 || axis as usize == self.shape.len() - 1 {
+            let last_dim = self.shape[self.shape.len() - 1];
+            let outer_size = self.data.len() / last_dim;
 
-        // For 3D tensor [batch, seq, dim], compute variance along last axis
-        if self.shape.len() == 3 && axis_pos == 2 {
-            let batch = self.shape[0];
-            let seq = self.shape[1];
-            let dim = self.shape[2];
+            let mut result = Vec::new();
+            for i in 0..outer_size {
+                let start = i * last_dim;
+                let end = start + last_dim;
+                let slice = &self.data[start..end];
 
-            let result: Vec<f32> = (0..batch * seq)
-                .into_par_iter()
-                .map(|i| {
-                    let start = i * dim;
-                    let end = start + dim;
-                    let slice = &self.data[start..end];
+                // Compute mean for this slice
+                let mean: f32 = slice.iter().sum::<f32>() / last_dim as f32;
 
-                    // Compute mean
-                    let mean: f32 = slice.iter().sum::<f32>() / dim as f32;
+                // Compute variance
+                let variance =
+                    slice.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / last_dim as f32;
 
-                    // Compute variance
-                    let variance: f32 = slice
-                        .iter()
-                        .map(|&x| {
-                            let diff = x - mean;
-                            diff * diff
-                        })
-                        .sum::<f32>()
-                        / dim as f32;
+                result.push(variance);
+            }
 
-                    variance
-                })
-                .collect();
-
-            let new_shape = if keepdim {
-                vec![batch, seq, 1]
+            let result_shape = if keepdim {
+                let mut shape = self.shape.clone();
+                shape[self.shape.len() - 1] = 1;
+                shape
             } else {
-                vec![batch, seq]
+                self.shape[..self.shape.len() - 1].to_vec()
             };
-            return Tensor::new(result, new_shape);
+
+            return Tensor::new(result, result_shape);
         }
 
-        panic!("Unsupported var operation for shape {:?}", self.shape);
+        panic!(
+            "Unsupported var operation for shape {:?} with axis {}",
+            self.shape, axis
+        );
     }
 
     /// Create a tensor with sequential integers
@@ -948,5 +948,49 @@ impl Tensor {
         let data: Vec<f32> = (start..end).map(|i| i as f32).collect();
         let len = data.len();
         Tensor::new(data, vec![len])
+    }
+
+    /// Concatenate two tensors along the first dimension (sequence dimension)
+    ///
+    /// Used for KV caching: concatenates cached K/V with new K/V.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - Tensor to concatenate with (must have matching shape except first dim)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use feste::Tensor;
+    /// let a = Tensor::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+    /// let b = Tensor::new(vec![5.0, 6.0], vec![1, 2]);
+    /// let c = a.concat(&b);
+    /// assert_eq!(c.shape, vec![3, 2]);
+    /// assert_eq!(c.data, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    /// ```
+    pub fn concat(&self, other: &Tensor) -> Tensor {
+        assert_eq!(
+            self.shape.len(),
+            other.shape.len(),
+            "Tensors must have same number of dimensions for concat"
+        );
+
+        // Check that all dimensions except the first match
+        for i in 1..self.shape.len() {
+            assert_eq!(
+                self.shape[i], other.shape[i],
+                "All dimensions except first must match for concat"
+            );
+        }
+
+        // Concatenate along first dimension
+        let mut new_shape = self.shape.clone();
+        new_shape[0] += other.shape[0];
+
+        let mut data = Vec::with_capacity(self.data.len() + other.data.len());
+        data.extend_from_slice(&self.data);
+        data.extend_from_slice(&other.data);
+
+        Tensor::new(data, new_shape)
     }
 }

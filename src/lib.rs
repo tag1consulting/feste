@@ -12,6 +12,7 @@
 //! - [`gpt2_trainable`] - Trainable GPT-2 with backward pass
 //! - [`train`] - Data loading for training
 //! - [`training_logger`] - Training metrics and logging
+//! - [`instruction_tuning`] - Instruction tuning for chatbots
 //!
 //! # Example: Tokenization
 //!
@@ -60,6 +61,7 @@
 
 pub mod gpt2_trainable;
 pub mod gradients;
+pub mod instruction_tuning;
 pub mod layers;
 pub mod model;
 pub mod optimizer;

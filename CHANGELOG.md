@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-10-12
+
+### Added
+
+**Generation Fundamentals (Examples 09-11):**
+- Autoregressive text generation implementation
+- Temperature-based sampling for controlling randomness
+- Example 09: `temperature_sampling.rs` - Demonstrates temperature effects
+- Example 10: `prompt_engineering.rs` - Explores prompt effects on generation
+- Example 11: `generation_speed_benchmark.rs` - Measures O(n²) performance characteristics
+- In-distribution vs out-of-distribution prompt analysis
+
+**KV Caching Infrastructure:**
+- KV cache implementation for 30-150x generation speedup
+- `KVCache` structure for storing attention keys and values
+- `forward_with_cache()` method for incremental forward passes
+- `generate_with_callback()` for streaming generation with callbacks
+- `generate_until()` for early stopping at special tokens
+- Reduces generation complexity from O(n³) to O(n²)
+
+**Instruction Tuning (Examples 12-13):**
+- Example 12: `instruction_tuning_chatbot.rs` - Transform models into conversational chatbots
+- Example 13: `test_chatbot.rs` - Interactive chatbot REPL with streaming responses
+- Instruction tuning module (`src/instruction_tuning.rs`)
+- Loss masking for training only on assistant responses
+- Catastrophic forgetting prevention (Shakespeare text mixing)
+- Multi-turn conversation support with history management
+- Interactive debugging and context window tracking
+
+**New Dependencies:**
+- `serde_json` for instruction dataset loading
+
+**Documentation:**
+- Comprehensive generation guide in `docs/06_GENERATION.md` (merged and expanded)
+- Part 1: Generation fundamentals (temperature, prompts, performance)
+- Part 2: Building applications (KV caching, instruction tuning, chatbots)
+- Part 3: Reference (advanced sampling strategies, examples guide)
+
+## [0.1.5] - 2025-10-11
+
+### Added
+- Four complete training examples with progressive complexity
+- Example 05: Tiny model (~50K params, 2-5 minutes training)
+- Example 06: Small model (~1M params, 10-20 minutes training)
+- Example 07: Medium model (~4M params, 1-2 hours training)
+- Example 08: Large model (TRUE GPT-2 Large: 117M params, 768d/12L/12H, 5-7 days training)
+- Gradient accumulation for effective larger batch sizes
+- Learning rate scheduling with warmup and cosine decay
+- Early stopping based on validation loss
+- Best model checkpoint tracking
+- Periodic checkpointing every 250 steps
+- Background checkpoint saving to not block training
+- Sample text generation during training
+- Complete Shakespeare training pipeline
+- Comprehensive training documentation
+
 ## [0.1.4] - 2025-10-11
 
 ### Added
