@@ -249,7 +249,7 @@ This matters for performance. Matrix multiplications access the last dimension r
 
 **Flash Attention:** Memory-efficient attention that avoids materializing the full attention matrix. Our implementation creates the full [seq, seq] matrix, which limits sequence length. Flash attention would allow longer contexts but adds significant complexity.
 
-**KV Cache:** During generation, we recompute attention for all previous tokens on every step. Caching key and value tensors would speed up generation significantly. Covered in Part 6.
+**KV Cache:** During generation, we recompute attention for all previous tokens on every step. Caching key and value tensors would speed up generation significantly.
 
 ## Common Issues
 
@@ -319,8 +319,6 @@ After running the architecture example:
 2. **Experiment with configurations** - Try different n_embd, n_heads, n_layers combinations
 3. **Profile memory usage** - Watch system memory while creating large models
 4. **Break things intentionally** - Try invalid configurations to understand the error messages
-
-Move on to Part 4: Training Infrastructure to learn how backpropagation and optimization turn random weights into a working language model.
 
 ## Further Reading
 

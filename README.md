@@ -1,6 +1,6 @@
 # Feste
 
-A GPT-2 style transformer language model implemented from scratch in Rust for educational purposes.
+A GPT-2 style transformer language model implemented from scratch in Rust for educational purposes. Companion code for the blog series *Building an LLM From Scratch in Rust*.
 
 ## Why Feste?
 
@@ -12,6 +12,18 @@ A complete trainable transformer that demonstrates how language models work by i
 
 The implementation trains on Shakespeare's works and generates text in similar style, showing clear perplexity improvements as training progresses.
 
+## Blog Series
+
+Each part of the blog has a companion doc with configuration details and implementation reference:
+
+| Part | Blog Post | Code Reference |
+|------|-----------|----------------|
+| 1 | [Tokenization](https://www.tag1.com/how-to/part1-tokenization-building-an-llm-from-scratch-in-rust/) | [`docs/01_TOKENIZATION.md`](docs/01_TOKENIZATION.md) |
+| 2 | [Tensor Operations](https://www.tag1.com/how-to/part2-tensor-operations-building-an-llm-from-scratch/) | [`docs/02_TENSOR_OPERATIONS.md`](docs/02_TENSOR_OPERATIONS.md) |
+| 3 | [Model Architecture](https://www.tag1.com/how-to/part3-model-architecture-building-an-llm-from-scratch/) | [`docs/03_MODEL_ARCHITECTURE.md`](docs/03_MODEL_ARCHITECTURE.md) |
+| 4 | [Training Infrastructure](https://www.tag1.com/how-to/part4-training-infrastructure-building-an-llm-from-scratch/) | [`docs/04_TRAINING.md`](docs/04_TRAINING.md) |
+| 5 | [A Witless Fool](https://www.tag1.com/how-to/part5-witless-fool-building-an-llm-from-scratch/) | [`docs/05_TRAINING_EXAMPLES.md`](docs/05_TRAINING_EXAMPLES.md) |
+
 ## Quick Start
 
 ```bash
@@ -20,36 +32,45 @@ curl -o shakespeare.txt https://www.gutenberg.org/files/100/100-0.txt
 
 # Train a small model (10-15 minutes)
 cargo run --release --example 06_train_shakespeare_small
-
-# Generate text with different temperatures
-cargo run --release --example 09_temperature_sampling
 ```
 
-## Training Examples
+## Reproducing Blog Experiments
 
-Models of different sizes for different compute budgets:
+The configurable training example lets you reproduce any experiment from the Part 5 blog post using named presets:
 
-- `05_train_shakespeare_tiny` - 50K parameters, 2-5 minutes
-- `06_train_shakespeare_small` - 200K parameters, 10-20 minutes
-- `07_train_shakespeare_medium` - 4M parameters, 1-2 hours
-- `08_train_shakespeare_gpt2` - **163M parameters (GPT-2 Small), 24-30 HOURS**
+```bash
+# List available presets
+cargo run --release --example train -- --list-presets
 
-All examples expose hyperparameters (learning rate, warmup, patience, gradient clipping) for experimentation.
+# Run a preset
+cargo run --release --example train -- --preset pocket-bard
 
-## Text Generation Examples
+# Override parameters
+cargo run --release --example train -- --preset spider --steps 10000
 
-- `09_temperature_sampling` - How temperature affects creativity (30 seconds)
-- `10_prompt_engineering` - How prompts influence output (1-2 minutes)
-- `11_generation_speed_benchmark` - Measuring O(n²) behavior (2-3 minutes)
+# Fully custom configuration
+cargo run --release --example train -- \
+    --embd 256 --layers 6 --heads 12 --context 448 --vocab 8192
+```
 
-See [`docs/06_GENERATION.md`](docs/06_GENERATION.md) for detailed generation documentation.
+See [`docs/05_TRAINING_EXAMPLES.md`](docs/05_TRAINING_EXAMPLES.md) for the full preset table, transfer learning instructions, and details on all training examples.
 
-## Foundation Examples
+## Examples
+
+### Foundation (Parts 1-4)
 
 - `01_train_tokenizers` - BPE tokenization at multiple vocab sizes
 - `02_tensor_operations` - Matrix multiplication and operations
 - `03_model_architecture` - Transformer architecture exploration
 - `04_training_infrastructure` - Training loop components
+
+### Training (Part 5)
+
+- `05_train_shakespeare_tiny` - 50K parameters, 2-5 minutes
+- `06_train_shakespeare_small` - 200K parameters, 10-20 minutes
+- `07_train_shakespeare_medium` - 4M parameters, 1-2 hours
+- `08_train_shakespeare_gpt2` - 163M parameters (GPT-2 Small), 24-30 hours
+- `train` - Configurable training with blog experiment presets
 
 ## License
 

@@ -1,318 +1,132 @@
-# Phase 5: Complete Training Examples
+# Training at Scale: Running the Examples
 
-This document describes the four progressive training examples that demonstrate training GPT-2 style transformers on Shakespeare's complete works.
+This document is a companion to the blog post ["A Witless Fool, Building an LLM From Scratch in Rust"](https://www.tag1.com/how-to/part5-witless-fool-building-an-llm-from-scratch/). It covers configuration details and provides guidance for running the training examples in this repository.
 
-## Overview
+## What's Here
 
-Phase 5 implements four complete training examples, progressing from tiny (2 minutes) to large (24-30 hours):
+Four progressive training examples that train GPT-2 style transformers on Shakespeare's complete works. The blog post covers the experiments, findings, and what the models actually learned. This document is a reference for running the examples yourself.
 
-| Example | Parameters | Time | Training Data |
-|---------|------------|------|---------------|
-| 05: Tiny | ~50K | 2-5 min | First 200K chars |
-| 06: Small | ~200K | 10-20 min | First 500K chars |
-| 07: Medium | ~4M | 1-2 hours | First 2M chars or full corpus |
-| 08: GPT-2 Small | ~163M | 24-30 hours | Full corpus |
+**Example files:**
+- [examples/05_train_shakespeare_tiny.rs](../examples/05_train_shakespeare_tiny.rs) - Tiny model (~50K params)
+- [examples/06_train_shakespeare_small.rs](../examples/06_train_shakespeare_small.rs) - Small model (~200K params)
+- [examples/07_train_shakespeare_medium.rs](../examples/07_train_shakespeare_medium.rs) - Medium model (~4M params)
+- [examples/08_train_shakespeare_gpt2.rs](../examples/08_train_shakespeare_gpt2.rs) - GPT-2 Small architecture (~163M params)
 
-Each example provides default hyperparameters that can be adjusted to explore training dynamics and model behavior.
+All examples use the `train_gpt2()` function from [src/gpt2_trainable.rs](../src/gpt2_trainable.rs).
 
-## Example 05: Train Shakespeare Tiny
+## Running the Examples
 
-**File**: `examples/05_train_shakespeare_tiny.rs`
-
-### Configuration
-```rust
-Config {
-    vocab_size: 512,    // Minimal vocabulary
-    n_embd: 64,         // Small embedding dimension
-    n_layers: 2,        // Just 2 layers
-    n_heads: 1,         // Single-head attention
-    block_size: 64,     // Short context
-}
-```
-
-### Training Hyperparameters (Defaults)
-- Steps: 500
-- Learning rate: 0.003
-- Warmup fraction: 0.1 (10% of steps)
-- Gradient clipping: 1.0
-- Early stopping patience: 5000
-- Sequence length: 64 (same as block_size)
-- Gradient accumulation: 8 mini-batches
-- Expected time: 2-5 minutes
-
-### Data Configuration (Defaults)
-- Tokenizer training corpus: First 200K characters
-- Model training corpus: First 200K characters
-- Validation split: 10% of training corpus
-
-All three values are configurable in the example code, allowing you to experiment with different data strategies (e.g., train tokenizer on full corpus but model on subset).
-
-### Purpose
-The fastest way to see a model learn. Useful for:
-- Testing the training pipeline
-- Quick experiments with hyperparameters
-- Understanding the training loop
-- Rapid iteration
-
-### What You'll Learn
-- Complete training loop (forward, backward, optimization)
-- Gradient accumulation and clipping
-- Learning rate scheduling
-- Validation loss tracking
-- Model checkpointing
-- Text generation during training
-
-### Usage
+### Quick experiments (Tiny, Small)
 ```bash
 cargo run --release --example 05_train_shakespeare_tiny
-```
-
-All outputs saved to: `data/shakespeare_tiny_<timestamp>/`
-
----
-
-## Example 06: Train Shakespeare Small
-
-**File**: `examples/06_train_shakespeare_small.rs`
-
-### Configuration
-```rust
-Config {
-    vocab_size: 1024,   // 2x larger than tiny
-    n_embd: 128,        // 2x larger than tiny
-    n_layers: 3,        // One more layer
-    n_heads: 1,         // Single-head attention
-    block_size: 128,    // Longer context
-}
-```
-
-### Training Hyperparameters (Defaults)
-- Steps: 2000
-- Learning rate: 0.002
-- Warmup fraction: 0.1 (10% of steps)
-- Gradient clipping: 1.0
-- Early stopping patience: 5000
-- Sequence length: 128 (same as block_size)
-- Gradient accumulation: 8 mini-batches
-- Expected time: 10-20 minutes
-
-### Data Configuration (Defaults)
-- Tokenizer training corpus: First 500K characters
-- Model training corpus: First 500K characters
-- Validation split: 10% of training corpus
-
-All three values are configurable in the example code, allowing you to experiment with different data strategies.
-
-### Purpose
-A good balance between training speed and model capacity for experimentation.
-
-### What You'll Learn
-- How model size affects learning quality
-- The relationship between training time and convergence
-- Impact of different hyperparameters on training dynamics
-- How tokenization quality affects generation
-
-### Usage
-```bash
 cargo run --release --example 06_train_shakespeare_small
 ```
 
-All outputs saved to: `data/shakespeare_small_<timestamp>/`
+### Long runs (Medium, GPT-2 Small)
+```bash
+nohup cargo run --release --example 07_train_shakespeare_medium > training.log 2>&1 &
+tail -f training.log
+```
 
----
+## Example Configurations
 
-## Example 07: Train Shakespeare Medium
+### 05: Tiny
 
-**File**: `examples/07_train_shakespeare_medium.rs`
+```rust
+Config {
+    vocab_size: 512,
+    n_embd: 64,
+    n_layers: 2,
+    n_heads: 1,
+    block_size: 64,
+}
+```
 
-### Configuration
+| Hyperparameter | Default |
+|----------------|---------|
+| Steps | 500 |
+| Learning rate | 0.003 |
+| Warmup fraction | 0.1 |
+| Gradient clipping | 1.0 |
+| Early stopping patience | 5000 |
+| Gradient accumulation | 8 mini-batches |
+| Training data | First 200K characters |
+| Expected time | 2-5 minutes |
+
+### 06: Small
+
+```rust
+Config {
+    vocab_size: 1024,
+    n_embd: 128,
+    n_layers: 3,
+    n_heads: 1,
+    block_size: 128,
+}
+```
+
+| Hyperparameter | Default |
+|----------------|---------|
+| Steps | 2000 |
+| Learning rate | 0.002 |
+| Warmup fraction | 0.1 |
+| Gradient clipping | 1.0 |
+| Early stopping patience | 5000 |
+| Gradient accumulation | 8 mini-batches |
+| Training data | First 500K characters |
+| Expected time | 10-20 minutes |
+
+### 07: Medium (~4M params)
+
 ```rust
 Config {
     vocab_size: 1536,
     n_embd: 256,
     n_layers: 4,
-    n_heads: 4,         // Multi-head attention (head_dim=64)
+    n_heads: 4,       // head_dim=64
     block_size: 256,
 }
 ```
 
-**Total Parameters**: ~4M
+| Hyperparameter | Default |
+|----------------|---------|
+| Steps | 8000 |
+| Learning rate | 0.0003 |
+| Warmup fraction | 0.1 |
+| Gradient clipping | 1.0 |
+| Early stopping patience | 3000 |
+| Gradient accumulation | 8 mini-batches |
+| Training data | First 2M characters |
+| Expected time | 1.5-2 hours |
 
-### Training Hyperparameters (Defaults)
-- Steps: 8000
-- Learning rate: 0.0003
-- Warmup fraction: 0.1 (10% of steps)
-- Gradient clipping: 1.0
-- Early stopping patience: 3000
-- Sequence length: 256 (same as block_size)
-- Gradient accumulation: 8 mini-batches
-- Expected time: 1.5-2 hours
+### 08: GPT-2 Small (~163M params)
 
-### Data Configuration (Defaults)
-- Tokenizer training corpus: First 2M characters (or full if smaller)
-- Model training corpus: First 2M characters (or full if smaller)
-- Validation split: 10% of training corpus
-
-All three values are configurable in the example code, allowing you to experiment with different data strategies.
-
-### Purpose
-Demonstrates training with multi-head attention and longer context windows.
-
-### What You'll Learn
-- Training with multi-head attention
-- Impact of longer context windows
-- How model capacity interacts with dataset size
-- Monitoring training/validation loss divergence
-- When training has converged
-
-### Usage
-```bash
-# Run in background (recommended for 1+ hour runs)
-cargo run --release --example 07_train_shakespeare_medium > training.log 2>&1 &
-
-# Monitor progress
-tail -f training.log
-# or
-tail -f data/shakespeare_medium_*/training_log.csv
-```
-
-All outputs saved to: `data/shakespeare_medium_<timestamp>/`
-
----
-
-## Example 08: Train Shakespeare GPT-2 Small Architecture
-
-**File**: `examples/08_train_shakespeare_gpt2.rs`
-
-### Configuration (GPT-2 Small - 163M Parameters)
 ```rust
 Config {
     vocab_size: 20534,
     n_embd: 768,
     n_layers: 12,
-    n_heads: 12,        // head_dim=64
+    n_heads: 12,      // head_dim=64
     block_size: 512,
 }
 ```
 
-**Total Parameters**: ~163M (without weight tying)
+Same architecture as OpenAI's GPT-2 Small (124M with weight tying).
 
-This is the same architecture as OpenAI's GPT-2 Small (124M with weight tying).
+| Hyperparameter | Default |
+|----------------|---------|
+| Steps | 5000 |
+| Learning rate | 0.0003 |
+| Warmup fraction | 0.1 |
+| Gradient clipping | 1.0 |
+| Early stopping patience | 2000 |
+| Gradient accumulation | 8 mini-batches |
+| Training data | Full Shakespeare corpus |
+| Expected time | **24-30 hours** |
 
-### Training Hyperparameters (Defaults)
-- Steps: 5000
-- Learning rate: 0.0003
-- Warmup fraction: 0.1 (10% of steps)
-- Gradient clipping: 1.0
-- Early stopping patience: 2000
-- Sequence length: 512 (same as block_size)
-- Gradient accumulation: 8 mini-batches
-- Expected time: **24-30 HOURS**
+All hyperparameters are configurable in each example's source code. Tokenizer corpus, model training corpus, and validation split (default 10%) can also be adjusted independently.
 
-### Data Configuration (Defaults)
-- Tokenizer training corpus: Full Shakespeare corpus
-- Model training corpus: Full Shakespeare corpus
-- Validation split: 10% of training corpus
-
-All three values are configurable in the example code, allowing you to experiment with different data strategies.
-
-### Purpose
-Demonstrates training the full GPT-2 Small architecture, providing an opportunity to explore how very large models behave on smaller datasets.
-
-### Usage
-```bash
-# Run in background (recommended for multi-day training)
-nohup cargo run --release --example 08_train_shakespeare_gpt2 > training.log 2>&1 &
-
-# Monitor progress
-tail -f training.log
-
-# Check if still running
-ps aux | grep 08_train_shakespeare_gpt2
-
-# View current metrics
-tail -20 data/shakespeare_gpt2_*/training_log.csv
-
-# Kill if needed
-pkill -f 08_train_shakespeare_gpt2
-```
-
-All outputs saved to: `data/shakespeare_gpt2_<timestamp>/`
-
----
-
-## Common Features Across All Examples
-
-### Output Structure
-Every example creates a timestamped directory with:
-```
-data/shakespeare_<size>_<timestamp>/
-├── training_log.csv        # Step-by-step metrics
-├── tokenizer.json          # Trained tokenizer
-├── checkpoint_best.bin     # Best validation loss ⭐
-├── checkpoint_step_*.bin   # Periodic checkpoints (every 250 steps)
-└── checkpoint_final.bin    # Final model
-```
-
-### Training Infrastructure
-All examples share common infrastructure:
-- **Gradient accumulation**: 8 mini-batches (effective batch size = 8)
-- **Gradient clipping**: Configurable (defaults vary by example)
-- **Learning rate schedule**: Linear warmup + cosine decay
-- **Early stopping**: Configurable patience (defaults vary by example)
-- **Checkpointing**: Saves every 250 steps + best + final
-- **Background saves**: Checkpoints save in separate threads
-- **Validation tracking**: Computes validation loss every 50 steps
-- **Sample generation**: Generates text every 200 steps
-
-### Training Metrics Logged
-The CSV log contains:
-- Step number
-- Learning rate (shows schedule)
-- Training loss
-- Validation loss
-- Training perplexity (exp(train_loss))
-- Validation perplexity (exp(val_loss))
-- Generated text samples (every 200 steps)
-- Timestamps
-
-### Loading Trained Models
-All checkpoints can be loaded for inference or continued training:
-
-```rust
-use feste::gpt2_trainable::Checkpoint;
-
-// Load checkpoint
-let checkpoint = Checkpoint::load("data/shakespeare_small_*/checkpoint_best.bin")?;
-let model = checkpoint.model;
-let tokenizer = checkpoint.tokenizer.unwrap();
-let optimizer = checkpoint.optimizer; // Optional: for continued training
-
-// Generate text
-let prompt_tokens = tokenizer.encode("To be, or not to be");
-let generated = model.generate(&prompt_tokens, 100, 0.8);
-let text = tokenizer.decode(&generated);
-println!("{}", text);
-
-// Continue training (if optimizer state was saved)
-if let Some(mut opt) = optimizer {
-    train_gpt2(
-        &mut model,
-        &tokenizer,
-        &text,
-        5000,  // Additional steps
-        0.001,
-        128,
-        Some("continued_training_run"),
-    );
-}
-```
-
----
-
-## Comparison Across All Sizes
-
-### Parameter Counts
+## Comparison Across Sizes
 
 | Model | n_embd | n_layers | n_heads | vocab | Parameters |
 |-------|--------|----------|---------|-------|------------|
@@ -321,16 +135,12 @@ if let Some(mut opt) = optimizer {
 | Medium | 256 | 4 | 4 | 1536 | ~4M |
 | GPT-2 Small | 768 | 12 | 12 | 20534 | ~163M |
 
-### Training Times (on modern CPU)
-
 | Model | Default Steps | Estimated Time | Throughput |
 |-------|---------------|----------------|------------|
 | Tiny | 500 | 2-5 min | ~2-3 steps/sec |
 | Small | 2000 | 10-20 min | ~2 steps/sec |
 | Medium | 8000 | 1.5-2 hours | ~1 step/sec |
 | GPT-2 Small | 5000 | 24-30 hours | ~0.05 steps/sec |
-
-### Memory Usage
 
 | Model | Parameters | Memory (model) | Memory (optimizer) | Total |
 |-------|------------|----------------|--------------------| ------|
@@ -339,120 +149,115 @@ if let Some(mut opt) = optimizer {
 | Medium | 4M | ~16 MB | ~32 MB | ~48 MB |
 | **GPT-2 Small** | **163M** | **~650 MB** | **~1.3 GB** | **~2.0 GB** |
 
----
+## Output Structure
 
-## Tips for Running Training Examples
-
-### For Quick Experiments (Tiny, Small)
-```bash
-# Just run directly
-cargo run --release --example 05_train_shakespeare_tiny
-cargo run --release --example 06_train_shakespeare_small
+Every example creates a timestamped directory:
+```
+data/shakespeare_<size>_<timestamp>/
+├── training_log.csv        # Step-by-step metrics
+├── tokenizer.json          # Trained tokenizer
+├── checkpoint_best.bin     # Best validation loss
+├── checkpoint_step_*.bin   # Periodic checkpoints (every 250 steps)
+└── checkpoint_final.bin    # Final model
 ```
 
-### For Long Runs (Medium, GPT-2 Small)
-```bash
-# Use nohup to survive logout
-nohup cargo run --release --example 07_train_shakespeare_medium > training.log 2>&1 &
+### Training Metrics Logged
 
-# Monitor progress
-tail -f training.log
+The CSV log contains step number, learning rate, training loss, validation loss, training perplexity, validation perplexity, generated text samples (every 200 steps), and timestamps.
 
-# Check process status
-ps aux | grep train_shakespeare
+### Shared Training Infrastructure
 
-# View current training metrics
-tail -20 data/shakespeare_medium_*/training_log.csv
+All examples use the same core infrastructure:
+- **Gradient accumulation**: 8 mini-batches (effective batch size = 8)
+- **Learning rate schedule**: Linear warmup + cosine decay
+- **Early stopping**: Configurable patience
+- **Checkpointing**: Every 250 steps + best + final (background saves)
+- **Validation**: Every 50 steps
+- **Sample generation**: Every 200 steps
+
+## Loading Trained Models
+
+```rust
+use feste::gpt2_trainable::Checkpoint;
+
+let checkpoint = Checkpoint::load("data/shakespeare_small_*/checkpoint_best.bin")?;
+let model = checkpoint.model;
+let tokenizer = checkpoint.tokenizer.unwrap();
+
+// Generate text
+let prompt_tokens = tokenizer.encode("To be, or not to be");
+let generated = model.generate(&prompt_tokens, 100, 0.8);
+let text = tokenizer.decode(&generated);
+println!("{}", text);
 ```
 
-### Monitoring Training
-Watch for these indicators during training:
-- **Loss trajectory**: Observe how training and validation loss change
-- **Train vs. Val loss**: Note the gap between them
-- **Perplexity**: Often more intuitive than raw loss values
-- **Generated samples**: Qualitative assessment of learning progress
-- **Numerical stability**: Watch for NaN or Inf values
+## Monitoring and Troubleshooting
 
-### Troubleshooting
+### What to Watch
 
-**Loss is NaN**:
-- Learning rate too high (try 0.5x current rate)
-- Check for corrupted data or tokenization issues
+- **Loss trajectory**: Should decrease from baseline (ln(vocab_size))
+- **Train vs. val loss gap**: Small gap is normal; divergence means overfitting
+- **Generated samples**: More informative than loss numbers alone (see the blog post for why)
 
-**Loss not decreasing**:
-- Learning rate too low (try 2x current rate)
-- Model too small for dataset
-- Not enough training steps
+### Common Problems
 
-**Loss diverging (increasing)**:
-- Learning rate too high
-- Gradient clipping not working
-- Numerical instability in implementation
+**Loss is NaN**: Learning rate too high (try 0.5x) or corrupted data.
 
-**Training very slow**:
-- Expected for larger models
-- Check CPU usage (should be high)
-- Ensure `--release` flag is used
-- Consider smaller model for faster iteration
+**Loss not decreasing**: Learning rate too low (try 2x), model too small, or not enough steps.
 
----
+**Loss diverging**: Learning rate too high or numerical instability.
 
-## Next Steps After Training
+**Training very slow**: Ensure `--release` flag is used. Larger models are expected to be slow.
 
-Once you've trained models, you can:
+## Reproducing Blog Experiments
 
-1. **Analyze results**: Plot loss curves, compare different configs
-2. **Generate text**: Try different temperatures and prompts
-3. **Experiment**: Change hyperparameters, try different data
-4. **Compare models**: Load multiple checkpoints, compare quality
-5. **Understand internals**: Study the training loop implementation
-6. **Extend**: Add features like learning rate scheduling, better sampling
+The configurable training example ([examples/train.rs](../examples/train.rs)) lets you reproduce any experiment from the blog post using named presets:
 
-## Implementation Details
+```bash
+cargo run --release --example train -- --list-presets
+cargo run --release --example train -- --preset pocket-bard
+cargo run --release --example train -- --preset spider
+```
 
-All training examples use the same core function: `train_gpt2()` defined in `src/gpt2_trainable.rs`. This function handles:
+### Available Presets
 
-- Data loading and train/val splitting
-- Gradient accumulation over mini-batches
-- Adam optimizer with momentum
-- Learning rate scheduling (warmup + cosine decay)
-- Gradient clipping (max_norm = 1.0)
-- Early stopping based on validation loss
-- Periodic checkpointing (every 250 steps)
-- Best checkpoint tracking
-- Sample generation during training
-- Comprehensive logging to CSV
+| Preset | embd | layers | heads | context | Blog section |
+|--------|------|--------|-------|---------|--------------|
+| `pocket-bard` | 256 | 6 | 12 | 448 | Pocket Bard (~9M params) |
+| `cyclops` | 64 | 2 | 1 | 64 | Cyclops vs Spider |
+| `spider` | 64 | 2 | 8 | 64 | Cyclops vs Spider |
+| `wide` | 256 | 4 | 4 | 1024 | Wide and Shallow |
+| `narrow` | 128 | 6 | 1 | 1024 | Narrow and Deep |
+| `short-context` | 256 | 4 | 4 | 128 | Working Memory |
+| `long-context` | 256 | 4 | 4 | 1024 | Working Memory |
+| `tinystories` | 256 | 6 | 8 | 448 | TinyStories Base |
 
-The examples differ only in:
-- Model configuration (size, layers, context)
-- Tokenizer vocabulary size
-- Number of training steps
-- Learning rate (tuned for model size)
-- Amount of training data used
+All presets use vocab 8192 for comparable perplexity. Any parameter can be overridden:
 
-This design keeps the training infrastructure consistent while allowing easy experimentation with model configurations.
+```bash
+cargo run --release --example train -- --preset pocket-bard --steps 10000
+```
 
----
+### Transfer Learning
 
-## Educational Value
+Pre-train on TinyStories, then fine-tune on Shakespeare:
 
-These four examples provide a progression in model scale:
+```bash
+# Step 1: Pre-train
+cargo run --release --example train -- --preset tinystories \
+    --data TinyStoriesV2-GPT4-valid.txt
 
-1. **Tiny**: Fast iteration for testing and learning the pipeline
-2. **Small**: Quick experiments with moderate capacity
-3. **Medium**: Substantial capacity with reasonable training time
-4. **GPT-2 Small**: Full GPT-2 Small architecture (163M parameters)
+# Step 2: Fine-tune
+cargo run --release --example train -- --preset pocket-bard \
+    --checkpoint data/tinystories_*/checkpoint_best.bin
+```
 
-This progression helps explore:
-- How model scale affects training dynamics
-- The relationship between capacity and dataset size
-- Training time vs. model quality trade-offs
-- Different hyperparameter configurations
-- The role of context length and vocabulary size
-- Validation monitoring and checkpoint management
+### Custom Configurations
 
----
+Skip presets entirely and specify all parameters:
 
-**Phase 5 Implementation Status**: ✅ Complete
-
-All four training examples have been implemented, tested, and documented. Each example compiles successfully and follows the patterns established in earlier phases (01-04).
+```bash
+cargo run --release --example train -- \
+    --embd 256 --layers 6 --heads 12 --context 448 --vocab 8192 \
+    --steps 50000 --lr 0.0003
+```

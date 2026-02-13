@@ -404,8 +404,6 @@ After running the infrastructure example:
 3. **Watch metrics** - Understand what healthy training looks like
 4. **Try breaking things** - Set LR too high, see what happens
 
-Move on to Part 5: Training Examples to train actual models at multiple scales and watch them learn to generate text.
-
 ## Further Reading
 
 - **AdamW Paper**: "Decoupled Weight Decay Regularization" (Loshchilov & Hutter, 2019) - https://arxiv.org/abs/1711.05101
