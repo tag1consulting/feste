@@ -152,7 +152,9 @@ impl TrainableSingleHeadAttention {
         let scale = (self.n_embd as f32).sqrt();
 
         // Backprop through residual dropout
-        let grad_y_proj = self.resid_dropout.backward(grad_out, &cache.resid_dropout_cache);
+        let grad_y_proj = self
+            .resid_dropout
+            .backward(grad_out, &cache.resid_dropout_cache);
 
         // Backprop through output projection
         let out_grads = self.out_proj.backward(&grad_y_proj, &cache.out_cache);
@@ -164,7 +166,9 @@ impl TrainableSingleHeadAttention {
         let grad_attn_weights_dropped = out_grads.x.matmul(&cache.v.transpose(-2, -1));
 
         // Backprop through attention dropout
-        let grad_attn_weights = self.attn_dropout.backward(&grad_attn_weights_dropped, &cache.attn_dropout_cache);
+        let grad_attn_weights = self
+            .attn_dropout
+            .backward(&grad_attn_weights_dropped, &cache.attn_dropout_cache);
 
         // Backprop through softmax (per-row)
         // softmax gradient: grad_scores = attn * (grad_attn - sum(grad_attn * attn))

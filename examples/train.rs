@@ -134,7 +134,7 @@ const PRESETS: &[Preset] = &[
         name: "pocket-bard",
         embd: 256,
         layers: 6,
-        heads: 12,
+        heads: 8,
         context: 448,
         vocab: 8192,
         lr: 0.0003,
@@ -285,10 +285,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n_layers = args.layers.unwrap_or_else(|| preset.unwrap().layers);
     let n_heads = args.heads.unwrap_or_else(|| preset.unwrap().heads);
     let block_size = args.context.unwrap_or_else(|| preset.unwrap().context);
-    let vocab_size = args.vocab.unwrap_or_else(|| preset.map(|p| p.vocab).unwrap_or(8192));
-    let learning_rate = args.lr.unwrap_or_else(|| preset.map(|p| p.lr).unwrap_or(0.001));
-    let num_steps = args.steps.unwrap_or_else(|| preset.map(|p| p.steps).unwrap_or(30000));
-    let patience = args.patience.unwrap_or_else(|| preset.map(|p| p.patience).unwrap_or(5000));
+    let vocab_size = args
+        .vocab
+        .unwrap_or_else(|| preset.map(|p| p.vocab).unwrap_or(8192));
+    let learning_rate = args
+        .lr
+        .unwrap_or_else(|| preset.map(|p| p.lr).unwrap_or(0.001));
+    let num_steps = args
+        .steps
+        .unwrap_or_else(|| preset.map(|p| p.steps).unwrap_or(30000));
+    let patience = args
+        .patience
+        .unwrap_or_else(|| preset.map(|p| p.patience).unwrap_or(5000));
 
     // Validate
     if n_embd % n_heads != 0 {
@@ -482,7 +490,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (prompt, temperature) in prompts {
         let prompt_tokens = tokenizer.encode(prompt);
-        let generated = model.generate(&prompt_tokens, 60, temperature, 1.0);
+        let generated = model.generate(&prompt_tokens, 60, temperature);
         let generated_text = tokenizer.decode(&generated);
         let display: String = generated_text.chars().take(150).collect();
 

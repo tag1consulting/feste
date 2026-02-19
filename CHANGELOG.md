@@ -25,23 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `generate_until()` for early stopping at special tokens
 - Reduces generation complexity from O(n³) to O(n²)
 
-**Instruction Tuning (Examples 12-13):**
-- Example 12: `instruction_tuning_chatbot.rs` - Transform models into conversational chatbots
-- Example 13: `test_chatbot.rs` - Interactive chatbot REPL with streaming responses
-- Instruction tuning module (`src/instruction_tuning.rs`)
-- Loss masking for training only on assistant responses
-- Catastrophic forgetting prevention (Shakespeare text mixing)
-- Multi-turn conversation support with history management
-- Interactive debugging and context window tracking
-
 **New Dependencies:**
-- `serde_json` for instruction dataset loading
-
-**Documentation:**
-- Comprehensive generation guide in `docs/06_GENERATION.md` (merged and expanded)
-- Part 1: Generation fundamentals (temperature, prompts, performance)
-- Part 2: Building applications (KV caching, instruction tuning, chatbots)
-- Part 3: Reference (advanced sampling strategies, examples guide)
+- `serde_json` for configuration serialization
 
 ## [0.1.5] - 2025-10-11
 

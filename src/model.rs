@@ -105,10 +105,10 @@ impl Config {
     pub fn tiny(vocab_size: usize) -> Self {
         Self {
             vocab_size,
-            n_embd: 64,      // Very small embedding
-            n_heads: 1,      // Single-head attention
-            n_layers: 2,     // Shallow
-            block_size: 64,  // Short context
+            n_embd: 64,        // Very small embedding
+            n_heads: 1,        // Single-head attention
+            n_layers: 2,       // Shallow
+            block_size: 64,    // Short context
             dropout_rate: 0.1, // Dropout probability
         }
     }

@@ -97,7 +97,9 @@ impl TrainableMLP {
     /// Gradients for all parameters and input
     pub fn backward(&self, grad_out: &Tensor, cache: &MLPCache) -> MLPGradients {
         // Backprop through residual dropout
-        let grad_y_proj = self.resid_dropout.backward(grad_out, &cache.resid_dropout_cache);
+        let grad_y_proj = self
+            .resid_dropout
+            .backward(grad_out, &cache.resid_dropout_cache);
 
         // Backprop through fc2
         let fc2_grads = self.fc2.backward(&grad_y_proj, &cache.fc2_cache);

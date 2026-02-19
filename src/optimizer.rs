@@ -82,6 +82,7 @@
 //! let mut optimizer = AdamWOptimizer::new(&model);
 //!
 //! // Training loop
+//! # let num_steps = 100;
 //! for step in 0..num_steps {
 //!     // ... forward pass, compute gradients ...
 //!     # let grads = todo!();

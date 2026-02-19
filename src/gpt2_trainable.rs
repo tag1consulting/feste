@@ -247,6 +247,56 @@ impl TrainableGPT2 {
         }
     }
 
+    /// Count total parameters in the model
+    ///
+    /// Returns the total number of trainable parameters, which determines:
+    /// - Model capacity (ability to learn complex patterns)
+    /// - Memory usage (approximately 4 bytes per parameter for f32)
+    /// - Training time (more parameters = slower training)
+    pub fn num_parameters(&self) -> usize {
+        let mut total = 0;
+
+        // Token and position embeddings
+        total += self.token_embedding.data.len();
+        total += self.position_embedding.data.len();
+
+        // All transformer blocks
+        for block in &self.blocks {
+            // LayerNorm 1
+            total += block.ln1.gamma.data.len();
+            total += block.ln1.beta.data.len();
+
+            // Attention projections
+            total += block.attn.q_proj.weight.data.len();
+            total += block.attn.q_proj.bias.data.len();
+            total += block.attn.k_proj.weight.data.len();
+            total += block.attn.k_proj.bias.data.len();
+            total += block.attn.v_proj.weight.data.len();
+            total += block.attn.v_proj.bias.data.len();
+            total += block.attn.out_proj.weight.data.len();
+            total += block.attn.out_proj.bias.data.len();
+
+            // LayerNorm 2
+            total += block.ln2.gamma.data.len();
+            total += block.ln2.beta.data.len();
+
+            // MLP
+            total += block.mlp.fc1.weight.data.len();
+            total += block.mlp.fc1.bias.data.len();
+            total += block.mlp.fc2.weight.data.len();
+            total += block.mlp.fc2.bias.data.len();
+        }
+
+        // Final layer norm
+        total += self.ln_final.gamma.data.len();
+        total += self.ln_final.beta.data.len();
+
+        // Output projection
+        total += self.output_weight.data.len();
+
+        total
+    }
+
     pub fn forward(&self, input_ids: &[usize]) -> (Tensor, GPT2Cache) {
         let seq_len = input_ids.len();
         let n_embd = self.config.n_embd;
@@ -1052,3 +1102,774 @@ fn sample_from_probs(probs: &[f32]) -> usize {
     })
 }
 
+//=============================================================================
+// TRAINING HELPERS
+//=============================================================================
+
+/// Initialize zero gradients matching model structure
+fn init_zero_gradients(model: &TrainableGPT2) -> GPT2Gradients {
+    let vocab_size = model.config.vocab_size;
+    let n_embd = model.config.n_embd;
+    let block_size = model.config.block_size;
+
+    let mut block_grads = Vec::new();
+    for block in &model.blocks {
+        block_grads.push(BlockGradients {
+            x: Tensor::new(vec![0.0; n_embd], vec![1, n_embd]),
+            ln1_gamma: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+            ln1_beta: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+            attn: AttentionGradients {
+                q_weight: Tensor::new(
+                    vec![0.0; block.attn.q_proj.weight.data.len()],
+                    block.attn.q_proj.weight.shape.clone(),
+                ),
+                q_bias: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+                k_weight: Tensor::new(
+                    vec![0.0; block.attn.k_proj.weight.data.len()],
+                    block.attn.k_proj.weight.shape.clone(),
+                ),
+                k_bias: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+                v_weight: Tensor::new(
+                    vec![0.0; block.attn.v_proj.weight.data.len()],
+                    block.attn.v_proj.weight.shape.clone(),
+                ),
+                v_bias: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+                out_weight: Tensor::new(
+                    vec![0.0; block.attn.out_proj.weight.data.len()],
+                    block.attn.out_proj.weight.shape.clone(),
+                ),
+                out_bias: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+                x: Tensor::new(vec![0.0; n_embd], vec![1, n_embd]),
+            },
+            ln2_gamma: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+            ln2_beta: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+            mlp: MLPGradients {
+                fc1_weight: Tensor::new(
+                    vec![0.0; block.mlp.fc1.weight.data.len()],
+                    block.mlp.fc1.weight.shape.clone(),
+                ),
+                fc1_bias: Tensor::new(
+                    vec![0.0; block.mlp.fc1.bias.data.len()],
+                    block.mlp.fc1.bias.shape.clone(),
+                ),
+                fc2_weight: Tensor::new(
+                    vec![0.0; block.mlp.fc2.weight.data.len()],
+                    block.mlp.fc2.weight.shape.clone(),
+                ),
+                fc2_bias: Tensor::new(
+                    vec![0.0; block.mlp.fc2.bias.data.len()],
+                    block.mlp.fc2.bias.shape.clone(),
+                ),
+                x: Tensor::new(vec![0.0; n_embd], vec![1, n_embd]),
+            },
+        });
+    }
+
+    GPT2Gradients {
+        token_embedding: Tensor::new(vec![0.0; vocab_size * n_embd], vec![vocab_size, n_embd]),
+        position_embedding: Tensor::new(vec![0.0; block_size * n_embd], vec![block_size, n_embd]),
+        block_grads,
+        ln_final_gamma: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+        ln_final_beta: Tensor::new(vec![0.0; n_embd], vec![n_embd]),
+        output_weight: Tensor::new(vec![0.0; n_embd * vocab_size], vec![n_embd, vocab_size]),
+    }
+}
+
+/// Add gradients element-wise (for gradient accumulation)
+fn add_gradients(accumulated: &mut GPT2Gradients, new: &GPT2Gradients) {
+    // Embeddings
+    for (a, b) in accumulated
+        .token_embedding
+        .data
+        .iter_mut()
+        .zip(&new.token_embedding.data)
+    {
+        *a += b;
+    }
+    for (a, b) in accumulated
+        .position_embedding
+        .data
+        .iter_mut()
+        .zip(&new.position_embedding.data)
+    {
+        *a += b;
+    }
+
+    // Block gradients
+    for (acc_block, new_block) in accumulated.block_grads.iter_mut().zip(&new.block_grads) {
+        // LayerNorm 1
+        for (a, b) in acc_block
+            .ln1_gamma
+            .data
+            .iter_mut()
+            .zip(&new_block.ln1_gamma.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .ln1_beta
+            .data
+            .iter_mut()
+            .zip(&new_block.ln1_beta.data)
+        {
+            *a += b;
+        }
+
+        // Attention
+        for (a, b) in acc_block
+            .attn
+            .q_weight
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.q_weight.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .attn
+            .q_bias
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.q_bias.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .attn
+            .k_weight
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.k_weight.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .attn
+            .k_bias
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.k_bias.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .attn
+            .v_weight
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.v_weight.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .attn
+            .v_bias
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.v_bias.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .attn
+            .out_weight
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.out_weight.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .attn
+            .out_bias
+            .data
+            .iter_mut()
+            .zip(&new_block.attn.out_bias.data)
+        {
+            *a += b;
+        }
+
+        // LayerNorm 2
+        for (a, b) in acc_block
+            .ln2_gamma
+            .data
+            .iter_mut()
+            .zip(&new_block.ln2_gamma.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .ln2_beta
+            .data
+            .iter_mut()
+            .zip(&new_block.ln2_beta.data)
+        {
+            *a += b;
+        }
+
+        // MLP
+        for (a, b) in acc_block
+            .mlp
+            .fc1_weight
+            .data
+            .iter_mut()
+            .zip(&new_block.mlp.fc1_weight.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .mlp
+            .fc1_bias
+            .data
+            .iter_mut()
+            .zip(&new_block.mlp.fc1_bias.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .mlp
+            .fc2_weight
+            .data
+            .iter_mut()
+            .zip(&new_block.mlp.fc2_weight.data)
+        {
+            *a += b;
+        }
+        for (a, b) in acc_block
+            .mlp
+            .fc2_bias
+            .data
+            .iter_mut()
+            .zip(&new_block.mlp.fc2_bias.data)
+        {
+            *a += b;
+        }
+    }
+
+    // Final layer norm
+    for (a, b) in accumulated
+        .ln_final_gamma
+        .data
+        .iter_mut()
+        .zip(&new.ln_final_gamma.data)
+    {
+        *a += b;
+    }
+    for (a, b) in accumulated
+        .ln_final_beta
+        .data
+        .iter_mut()
+        .zip(&new.ln_final_beta.data)
+    {
+        *a += b;
+    }
+
+    // Output weight
+    for (a, b) in accumulated
+        .output_weight
+        .data
+        .iter_mut()
+        .zip(&new.output_weight.data)
+    {
+        *a += b;
+    }
+}
+
+/// Scale all gradients by a constant factor
+fn scale_gradients(grads: &mut GPT2Gradients, scale: f32) {
+    for v in &mut grads.token_embedding.data {
+        *v *= scale;
+    }
+    for v in &mut grads.position_embedding.data {
+        *v *= scale;
+    }
+
+    for block in &mut grads.block_grads {
+        for v in &mut block.ln1_gamma.data {
+            *v *= scale;
+        }
+        for v in &mut block.ln1_beta.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.q_weight.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.q_bias.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.k_weight.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.k_bias.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.v_weight.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.v_bias.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.out_weight.data {
+            *v *= scale;
+        }
+        for v in &mut block.attn.out_bias.data {
+            *v *= scale;
+        }
+        for v in &mut block.ln2_gamma.data {
+            *v *= scale;
+        }
+        for v in &mut block.ln2_beta.data {
+            *v *= scale;
+        }
+        for v in &mut block.mlp.fc1_weight.data {
+            *v *= scale;
+        }
+        for v in &mut block.mlp.fc1_bias.data {
+            *v *= scale;
+        }
+        for v in &mut block.mlp.fc2_weight.data {
+            *v *= scale;
+        }
+        for v in &mut block.mlp.fc2_bias.data {
+            *v *= scale;
+        }
+    }
+
+    for v in &mut grads.ln_final_gamma.data {
+        *v *= scale;
+    }
+    for v in &mut grads.ln_final_beta.data {
+        *v *= scale;
+    }
+    for v in &mut grads.output_weight.data {
+        *v *= scale;
+    }
+}
+
+/// Get a random starting position for a training batch
+fn get_random_batch_start(tokens_len: usize, seq_len: usize) -> usize {
+    use std::cell::Cell;
+    thread_local! {
+        static RNG: Cell<u64> = const { Cell::new(98765) };
+    }
+
+    let max_start = tokens_len.saturating_sub(seq_len + 1);
+    if max_start == 0 {
+        return 0;
+    }
+
+    RNG.with(|rng| {
+        let mut state = rng.get();
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        rng.set(state);
+        (state >> 33) as usize % max_start
+    })
+}
+
+/// Get learning rate with warmup and cosine decay schedule
+fn get_lr_with_schedule(
+    step: usize,
+    warmup_steps: usize,
+    max_steps: usize,
+    max_lr: f32,
+    min_lr: f32,
+) -> f32 {
+    if step < warmup_steps {
+        // Linear warmup: 0 -> max_lr
+        max_lr * (step as f32 / warmup_steps as f32)
+    } else {
+        // Cosine decay: max_lr -> min_lr
+        let decay_steps = max_steps - warmup_steps;
+        let decay_step = step - warmup_steps;
+        let decay_ratio = decay_step as f32 / decay_steps as f32;
+
+        // Cosine annealing formula
+        let cosine_decay = 0.5 * (1.0 + (std::f32::consts::PI * decay_ratio).cos());
+        min_lr + (max_lr - min_lr) * cosine_decay
+    }
+}
+
+/// Adaptive learning rate scheduler that responds to validation loss plateaus
+///
+/// This scheduler works alongside the base cosine schedule to automatically reduce
+/// learning rate when validation loss stops improving.
+pub struct AdaptiveLRScheduler {
+    current_lr_multiplier: f32,
+    patience: usize,
+    reduction_factor: f32,
+    min_lr_ratio: f32,
+    cooldown: usize,
+
+    // State tracking
+    best_val_loss: f32,
+    steps_without_improvement: usize,
+    cooldown_remaining: usize,
+}
+
+impl AdaptiveLRScheduler {
+    pub fn new(_base_lr: f32, patience: usize) -> Self {
+        Self {
+            current_lr_multiplier: 1.0,
+            patience,
+            reduction_factor: 0.5,
+            min_lr_ratio: 0.1,
+            cooldown: 500,
+            best_val_loss: f32::INFINITY,
+            steps_without_improvement: 0,
+            cooldown_remaining: 0,
+        }
+    }
+
+    /// Update the scheduler with the latest validation loss
+    /// Returns true if the learning rate was reduced
+    pub fn step(&mut self, val_loss: f32, steps_elapsed: usize) -> bool {
+        // Update cooldown
+        if self.cooldown_remaining > 0 {
+            self.cooldown_remaining = self.cooldown_remaining.saturating_sub(steps_elapsed);
+        }
+
+        // Check for improvement
+        if val_loss < self.best_val_loss {
+            self.best_val_loss = val_loss;
+            self.steps_without_improvement = 0;
+            false
+        } else {
+            self.steps_without_improvement += steps_elapsed;
+
+            // Check if we should reduce learning rate
+            if self.steps_without_improvement >= self.patience && self.cooldown_remaining == 0 {
+                // Reduce learning rate
+                self.current_lr_multiplier *= self.reduction_factor;
+                self.current_lr_multiplier = self.current_lr_multiplier.max(self.min_lr_ratio);
+                self.cooldown_remaining = self.cooldown;
+                self.steps_without_improvement = 0;
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Get the current LR multiplier to apply to the scheduled LR
+    pub fn get_multiplier(&self) -> f32 {
+        self.current_lr_multiplier
+    }
+}
+
+pub fn train_gpt2(
+    model: &mut TrainableGPT2,
+    tokenizer: &BPETokenizer,
+    text: &str,
+    num_steps: usize,
+    learning_rate: f32,
+    seq_len: usize,
+    run_dir: Option<&str>,
+    patience: usize,
+    warmup_fraction: f32,
+    gradient_clip_norm: f32,
+    validation_fraction: f32,
+    weight_decay: f32,
+) {
+    use crate::training_logger::{compute_dataset_loss, train_val_split, TrainingLogger};
+
+    // Create run directory for this training session
+    let run_dir = if let Some(dir) = run_dir {
+        dir.to_string()
+    } else {
+        // Generate timestamped directory name using Unix timestamp
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        format!("run_{}", timestamp)
+    };
+
+    // Create the directory
+    std::fs::create_dir_all(&run_dir).expect("Failed to create run directory");
+    println!("📁 Run directory: {}/\n", run_dir);
+
+    println!("\n=== Training GPT-2 Style Transformer ===\n");
+
+    let tokens = tokenizer.encode(text);
+
+    // Split into train/validation based on provided fraction
+    let (train_tokens, val_tokens) = train_val_split(&tokens, validation_fraction);
+    println!(
+        "Train tokens: {} ({:.1}%), Val tokens: {} ({:.1}%)\n",
+        train_tokens.len(),
+        (1.0 - validation_fraction) * 100.0,
+        val_tokens.len(),
+        validation_fraction * 100.0
+    );
+
+    // Initialize logger in run directory
+    let log_path = format!("{}/training_log.csv", run_dir);
+    let mut logger = TrainingLogger::new(&log_path).expect("Failed to create training log");
+
+    // Initialize AdamW optimizer
+    println!("🚀 Initializing AdamW optimizer...");
+    let mut optimizer = AdamWOptimizer::new(model);
+
+    // Tune beta2 for better second moment tracking (experimental)
+    optimizer.beta2 = 0.98;
+
+    println!(
+        "   Beta1: {}, Beta2: {}, Epsilon: {}",
+        optimizer.beta1, optimizer.beta2, optimizer.epsilon
+    );
+    println!("   Weight decay: {}", weight_decay);
+    println!("   Gradient clipping: max_norm = {}", gradient_clip_norm);
+
+    // Gradient accumulation settings
+    let accumulation_steps = 1;
+    println!(
+        "   Gradient accumulation: {} mini-batches (effective batch size = {})\n",
+        accumulation_steps, accumulation_steps
+    );
+
+    // Learning rate schedule configuration
+    let warmup_steps = (num_steps as f32 * warmup_fraction) as usize;
+    let min_lr = learning_rate * 0.1; // Decay to 10% of max LR
+    println!("📊 Learning Rate Schedule:");
+    println!(
+        "   Warmup steps: {} ({}% of training)",
+        warmup_steps,
+        (warmup_steps as f32 / num_steps as f32 * 100.0) as usize
+    );
+    println!("   Max learning rate: {}", learning_rate);
+    println!("   Min learning rate: {}", min_lr);
+    println!("   Schedule: Linear warmup → Cosine decay\n");
+
+    // Initialize adaptive scheduler for post-warmup phase
+    let mut adaptive_scheduler = AdaptiveLRScheduler::new(learning_rate, 500);
+    println!("🎯 Adaptive LR Scheduler:");
+    println!("   Patience: 500 steps");
+    println!("   Reduction factor: 0.5x on plateau");
+    println!("   Cooldown: 500 steps between reductions");
+    println!("   Min LR ratio: 10% of base LR\n");
+
+    // Early stopping configuration
+    println!("⏹️  Early stopping: patience = {} steps\n", patience);
+    let mut best_val_loss = f32::INFINITY;
+    let mut best_val_step = 0;
+    let mut steps_without_improvement = 0;
+
+    // Track background checkpoint save threads
+    let mut checkpoint_handles: Vec<std::thread::JoinHandle<std::io::Result<()>>> = Vec::new();
+
+    // Training loop
+    for step in 0..num_steps {
+        // Compute current learning rate with adaptive schedule
+        let current_lr = if step < warmup_steps {
+            // Standard warmup phase
+            learning_rate * (step as f32 / warmup_steps as f32)
+        } else {
+            // Performance-based adaptive phase
+
+            // Base cosine schedule
+            let scheduled_lr =
+                get_lr_with_schedule(step, warmup_steps, num_steps, learning_rate, min_lr);
+
+            // Apply adaptive multiplier
+            let adaptive_lr = scheduled_lr * adaptive_scheduler.get_multiplier();
+
+            // Ensure we don't go below minimum
+            adaptive_lr.max(learning_rate * adaptive_scheduler.min_lr_ratio)
+        };
+
+        // Accumulate gradients over multiple mini-batches
+        let mut accumulated_grads = init_zero_gradients(model);
+        let mut total_loss = 0.0;
+
+        for _micro_step in 0..accumulation_steps {
+            // Random sampling for better generalization
+            let start = get_random_batch_start(train_tokens.len(), seq_len);
+            let input_seq = &train_tokens[start..start + seq_len];
+            let target_seq = &train_tokens[start + 1..start + seq_len + 1];
+
+            // Forward
+            let (logits, cache) = model.forward(input_seq);
+            let loss = model.compute_loss(&logits, target_seq);
+            total_loss += loss;
+
+            // Backward
+            let grads = model.backward(&logits, target_seq, &cache);
+
+            // Accumulate gradients
+            add_gradients(&mut accumulated_grads, &grads);
+        }
+
+        // Average the accumulated gradients
+        let train_loss = total_loss / accumulation_steps as f32;
+        scale_gradients(&mut accumulated_grads, 1.0 / accumulation_steps as f32);
+
+        // Gradient clipping
+        clip_gradients(&mut accumulated_grads, gradient_clip_norm);
+
+        // Update with AdamW (using scheduled learning rate and weight decay)
+        adamw_update(
+            model,
+            &accumulated_grads,
+            &mut optimizer,
+            current_lr,
+            weight_decay,
+        );
+
+        // Save checkpoint every 250 steps (with full training state) - in background!
+        if step > 0 && step % 250 == 0 {
+            let checkpoint = Checkpoint {
+                model: model.clone_shallow(),
+                optimizer: Some(optimizer.clone_shallow()),
+                tokenizer: Some((*tokenizer).clone()),
+                step,
+                best_val_loss,
+                best_val_step,
+            };
+            let checkpoint_path = format!("{}/checkpoint_step_{}.bin", run_dir, step);
+            println!(
+                "💾 Saving checkpoint to {} (background)...",
+                checkpoint_path
+            );
+            let handle = checkpoint.save_background(checkpoint_path);
+            checkpoint_handles.push(handle);
+        }
+
+        // Log progress every 50 steps
+        if step % 50 == 0 || step == num_steps - 1 {
+            // Compute validation loss
+            let val_loss = compute_dataset_loss(
+                val_tokens,
+                seq_len,
+                10, // Use 10 validation batches
+                |input, target| {
+                    let (logits, _) = model.forward(input);
+                    model.compute_loss(&logits, target)
+                },
+            );
+
+            // Early stopping check
+            if val_loss < best_val_loss {
+                best_val_loss = val_loss;
+                best_val_step = step;
+                steps_without_improvement = 0;
+
+                // Save best model checkpoint (with full training state) - in background!
+                println!(
+                    "📊 New best validation loss: {:.4} (perplexity: {:.2})",
+                    val_loss,
+                    val_loss.exp()
+                );
+                let checkpoint = Checkpoint {
+                    model: model.clone_shallow(),
+                    optimizer: Some(optimizer.clone_shallow()),
+                    tokenizer: Some((*tokenizer).clone()),
+                    step,
+                    best_val_loss,
+                    best_val_step,
+                };
+                println!("💾 Saving best checkpoint (background)...");
+                let handle = checkpoint.save_background(format!("{}/checkpoint_best.bin", run_dir));
+                checkpoint_handles.push(handle);
+            } else {
+                steps_without_improvement += 50; // We check every 50 steps
+            }
+
+            // Update adaptive scheduler (post-warmup only)
+            if step > warmup_steps {
+                let lr_reduced = adaptive_scheduler.step(val_loss, 50);
+                if lr_reduced {
+                    println!(
+                        "🔧 Validation plateau detected, reducing LR multiplier to {:.3}",
+                        adaptive_scheduler.get_multiplier()
+                    );
+                }
+            }
+
+            // Generate sample every 200 steps
+            let sample = if step % 200 == 0 || step == num_steps - 1 {
+                let prompt = "To be, or not to be";
+                let prompt_tokens = tokenizer.encode(prompt);
+                let generated = model.generate(&prompt_tokens, 30, 1.0);
+                let generated_text = tokenizer.decode(&generated[prompt_tokens.len()..]);
+                let preview: String = generated_text.chars().take(50).collect();
+                Some(format!("{}{}", prompt, preview))
+            } else {
+                None
+            };
+
+            logger
+                .log(step, current_lr, train_loss, val_loss, sample.as_deref())
+                .expect("Failed to write log");
+
+            // Break if early stopping triggered
+            if steps_without_improvement >= patience {
+                println!("\n🛑 Early stopping triggered at step {}!", step);
+                println!(
+                    "   Best validation loss: {:.4} (perplexity: {:.2}) at step {}",
+                    best_val_loss,
+                    best_val_loss.exp(),
+                    best_val_step
+                );
+                println!("   No improvement for {} steps", steps_without_improvement);
+
+                // Save early-stop checkpoint (with full training state) - in background!
+                let checkpoint = Checkpoint {
+                    model: model.clone_shallow(),
+                    optimizer: Some(optimizer.clone_shallow()),
+                    tokenizer: Some((*tokenizer).clone()),
+                    step,
+                    best_val_loss,
+                    best_val_step,
+                };
+                let early_stop_path =
+                    format!("{}/checkpoint_early_stop_step_{}.bin", run_dir, step);
+                println!("💾 Saving early-stop checkpoint (background)...");
+                let handle = checkpoint.save_background(early_stop_path);
+                checkpoint_handles.push(handle);
+
+                break;
+            }
+        }
+    }
+
+    // Save final checkpoint (if we completed all steps without early stopping) - in background!
+    println!("\n💾 Saving final checkpoint (background)...");
+    let final_checkpoint = Checkpoint {
+        model: model.clone_shallow(),
+        optimizer: Some(optimizer.clone_shallow()),
+        tokenizer: Some((*tokenizer).clone()),
+        step: num_steps - 1,
+        best_val_loss,
+        best_val_step,
+    };
+    let handle =
+        final_checkpoint.save_background(format!("{}/checkpoint_final.bin", run_dir).to_string());
+    checkpoint_handles.push(handle);
+
+    // Wait for all background checkpoint saves to complete
+    println!(
+        "\n⏳ Waiting for {} background checkpoint saves to complete...",
+        checkpoint_handles.len()
+    );
+    for (i, handle) in checkpoint_handles.into_iter().enumerate() {
+        match handle.join() {
+            Ok(Ok(())) => println!("   ✅ Checkpoint {} saved successfully", i + 1),
+            Ok(Err(e)) => eprintln!("   ⚠️  Checkpoint {} failed: {}", i + 1, e),
+            Err(_) => eprintln!("   ⚠️  Checkpoint {} thread panicked", i + 1),
+        }
+    }
+    println!("✅ All checkpoints saved!");
+
+    println!("\n=== Training Complete ===\n");
+    println!("Training log saved to: training_log.csv");
+    println!(
+        "Best validation loss: {:.4} (perplexity: {:.2}) at step {}",
+        best_val_loss,
+        best_val_loss.exp(),
+        best_val_step
+    );
+    println!("Best model saved to: checkpoint_best.bin");
+}
