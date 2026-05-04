@@ -133,6 +133,47 @@ impl BPETokenizer {
     /// assert!(tokenizer.vocab_size() > 256);
     /// ```
     pub fn train(&mut self, text: &str, vocab_size: usize) {
+        self.train_with_min_frequency(text, vocab_size, 1);
+    }
+
+    /// Train BPE on a text corpus
+    ///
+    /// Learns merge rules by iteratively finding and merging the most frequent
+    /// adjacent token pairs. This builds a vocabulary from the base 256 byte
+    /// tokens up to the target vocabulary size.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - Training corpus (typically several MB of text)
+    /// * `vocab_size` - Target vocabulary size (common values: 512, 1024, 2048, 5000)
+    /// * `min_pair_count` - Minimum frequency for a pair to be merged
+    ///
+    /// # Performance Optimization
+    ///
+    /// For large vocabularies (>2000 tokens), this method trains on a 200KB sample
+    /// of the corpus rather than the full text. This is much faster and still learns
+    /// the most common patterns effectively. The learned merges are then available
+    /// for encoding the full corpus.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use feste::BPETokenizer;
+    ///
+    /// // Train on a sample text corpus
+    /// let text = "hello world hello rust hello world";
+    /// let mut tokenizer = BPETokenizer::new(300);
+    /// tokenizer.train_with_min_frequency(&text, 300, 2);
+    ///
+    /// // Verify training worked
+    /// assert!(tokenizer.vocab_size() > 256);
+    /// ```
+    pub fn train_with_min_frequency(
+        &mut self,
+        text: &str,
+        vocab_size: usize,
+        min_pair_count: usize,
+    ) {
         // If target vocab size is 256 or less, we're already done
         if vocab_size <= 256 {
             return;
@@ -150,7 +191,7 @@ impl BPETokenizer {
         // 200KB is sufficient to learn common patterns and trains much faster
         const MAX_SAMPLE_SIZE: usize = 200_000;
         let training_text = if num_merges > 2000 && text.len() > MAX_SAMPLE_SIZE {
-           let sample_size = text.floor_char_boundary(MAX_SAMPLE_SIZE);
+            let sample_size = text.floor_char_boundary(MAX_SAMPLE_SIZE);
             println!(
                 "  Using {}KB training sample for speed (learns common patterns faster). {}",
                 sample_size / 1000,
@@ -228,6 +269,18 @@ impl BPETokenizer {
 
             // The first pair is the winner
             let (best_pair, count) = pairs[0].clone();
+
+            // If the most frequent pair only appears once, further merges do not
+            // improve compression and tend to create very long one-off tokens.
+            // Stop early to avoid pathological merge growth.
+            if count < min_pair_count {
+                println!(
+                    "  Stopping early at merge {}: best pair frequency is smaller than {}",
+                    merge_idx + 1,
+                    min_pair_count
+                );
+                break;
+            }
 
             // Create new token by concatenating the pair
             let new_token = format!("{}{}", best_pair.0, best_pair.1);
